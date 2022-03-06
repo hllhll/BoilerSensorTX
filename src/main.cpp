@@ -26,7 +26,6 @@ bool avr_sleeping = false;
 
 int counter = 0;
 char buf[100];
-const char *str_fixed = "HelloFromTX #";
 
 
 // OneWire DS18S20, DS18B20, DS1822 Temperature Example
@@ -36,7 +35,7 @@ const char *str_fixed = "HelloFromTX #";
 // The DallasTemperature library can do all this work for you!
 // http://milesburton.com/Dallas_Temperature_Control_Library
 
-OneWire  oneWire(SENSOR_1WIRE_PIN);  // on pin 10 (a 4.7K resistor is necessary)
+OneWire  oneWire(SENSOR_1WIRE_PIN);  // (a 4.7K resistor is necessary)
 DallasTemperature sensors(&oneWire);
 
 unsigned int tx_counter;
@@ -45,12 +44,9 @@ byte sensor_types[MAX_SENSORS];
 byte known_sensors;
 
 char binstr_buf[17];
-#define EEPROM_SENSORS_NUM_ADDR 0
-#define EEPROM_SENSORS_LIST_ADDR 4
-#define EEPROM_SENSORS_LIST_SIZE (8*MAX_SENSORS)
 
 byte nv_sensors;
-byte nv_sensors_list[MAX_SENSORS][8]={};
+#include "Sensor.hpp"
 
 void start_at(){
   if(!hc12_is_atmode){
@@ -86,10 +82,6 @@ void hc12_sleep(){
   Serial.println("AT+SLEEP");
   Serial.flush();
   // "AT+SLEEP CR,CL" - 10 chars, +start stop bits, 10*10 - 100 bits @ 9600 => 10.4ms
-
-  locahEcho();
-
-
   delay(11);
   stop_at(); // Sleep will be in effect after leaving AT mode.
 }
@@ -175,28 +167,6 @@ void setup_hc12(){
 }
 
 
-void eeprom_load(){
-  EEPROM.get(EEPROM_SENSORS_NUM_ADDR, nv_sensors);
-  if (nv_sensors<0 || nv_sensors>MAX_SENSORS)
-  {
-    nv_sensors = 0;
-    memset(nv_sensors_list, 0, sizeof(nv_sensors_list));
-    Serial.println("EEPROM: Sensors reset - invalid count");
-    return;
-  }
-
-  EEPROM.get( EEPROM_SENSORS_LIST_ADDR,  nv_sensors_list);
-
-  Serial.println("EEPROM: Sensors:");
-  for(int sensor_idx=0; sensor_idx<nv_sensors; sensor_idx++){
-    for( int j = 0; j < 8; j++) {
-      Serial.write(' ');
-      Serial.print(nv_sensors_list[sensor_idx][j], HEX);
-    }
-    Serial.println();
-  }
-
-}
 
 void eeprom_save(){
   Serial.println("EEPROM: Saving");
@@ -238,14 +208,7 @@ byte find_sensors() {
 */
 }
 
-bool find_addr_in_arr(const byte arr[][8], byte count, const byte *addr){
-  for( ; count; ){
-    count--;
-    if(memcmp(arr[count], addr, 8) == 0)
-      return true;
-  }
-  return false;
-}
+
 
 
 void configure_sensors(){
@@ -263,6 +226,10 @@ void configure_sensors(){
   sensors.setWaitForConversion(true); // use with isConversionComplete ?
 }
 
+SensorSnapshot snapshot_nvram;
+SensorSnapshot snapshot_detected;
+SensorSnapshot snapshot_current;
+
 void setup(void) {
   setup_hc12();
   hc12_sleep();
@@ -273,30 +240,15 @@ void setup(void) {
   clear();
 
   // Load known sensors address from NVRAM
-  eeprom_load();
+  FromEEPROM(snapshot_nvram);
 
   // Find active sensors on bus - sensors object is now populated
-  byte s_count = find_sensors();
+  FromDallas(sensors, snapshot_detected);
 
-  // Find how meny NVRAM sensors found in line.
-  byte dev_addr[8];
-  byte match = 0;
-  for(byte i=0; i<s_count; i++)
-  {
-    if(!sensors.getAddress(dev_addr, i)){
-      Serial.println("**Unexpected error?");
-      return;
-    }
-    if ( find_addr_in_arr(nv_sensors_list,
-      sizeof(nv_sensors_list)/sizeof(nv_sensors_list[0]),
-      dev_addr) )
-    {
-        match++;
-    }
-  }
+  byte available_from_nvram = MarkActive(snapshot_nvram, snapshot_detected);
 
   // Find how many new sensors, if > RELEARN_SENSORS_THRESHOLD, reset them.
-  byte new_sensors_count = s_count - match;
+  byte new_sensors_count = snapshot_detected.count - available_from_nvram;
   Serial.print("Found ");
   Serial.print(new_sensors_count);
   Serial.print(" new sensors");
