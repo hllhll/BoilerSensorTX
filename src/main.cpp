@@ -1,12 +1,25 @@
 #include <Arduino.h>
 #include <EEPROM.h>
 // Current sketch static configuration
+
+// For debug
+#define ACTIVATE_TEST_MODULE
+#define RF_DONT_LEAVE_SLEEP
+#define JUST_TEST_RF_ON_BOOT
+#define DEBUG_PRINTS
 #define HC12_DEFAULT_BAUDRATE 9600
 #define HC12_SET_PIN 3
 #define MAX_SENSORS 6
+byte txframe[MAX_SENSORS+1+1];
 #define RESOLUTION 12 // 9 bit-0.5°C
 #define RELEARN_SENSORS_THRESHOLD 2 // If x new sensors are found that are not in ROM, re-learn all of them
 #define SENSOR_1WIRE_PIN 14
+
+//Amount of bits sent in UART TX of bytes bytes
+#define UART_BITS_IN_BYTES(bytes) ((8+1+1)*(bytes))
+// How meny MS does it take to TX bytes amount of bytes
+#define DELAY_TX_DATA_MS(bytes) ((UART_BITS_IN_BYTES(bytes)/HC12_DEFAULT_BAUDRATE)*1000*1.25)
+
 // OneWireNoResistor-1.0 ; On some devices it can possibly make the PULLUP resistor redunded.
 // NOTE: Does not work on all devices, and not in all cases, see https://wp.josh.com/2014/06/23/no-external-pull-up-needed-for-ds18b20-temp-sensor/
 // Arduino pro mini 8MHZ 3.3 - Doesn't work, still need pull-up.
@@ -23,9 +36,15 @@
 bool hc12_is_atmode = false;
 bool avr_sleeping = false;
 
+#include "Sensor.hpp"
+
+SensorSnapshot snapshot_nvram;
+SensorSnapshot snapshot_detected;
+SensorSnapshot snapshot_current;
 
 int counter = 0;
 char buf[100];
+
 
 
 // OneWire DS18S20, DS18B20, DS1822 Temperature Example
@@ -39,19 +58,41 @@ OneWire  oneWire(SENSOR_1WIRE_PIN);  // (a 4.7K resistor is necessary)
 DallasTemperature sensors(&oneWire);
 
 unsigned int tx_counter;
-byte sensor_addresses[MAX_SENSORS][8];
+/*byte sensor_addresses[MAX_SENSORS][8];
 byte sensor_types[MAX_SENSORS];
 byte known_sensors;
 
-char binstr_buf[17];
+char binstr_buf[17];*/
 
-byte nv_sensors;
-#include "Sensor.hpp"
+
+
+
+
+char CRC8(const byte *data,int length) 
+{
+   byte crc = 0x00;
+   byte extract;
+   byte sum;
+   for(int i=0;i<length;i++)
+   {
+      extract = *data;
+      for (char tempI = 8; tempI; tempI--) 
+      {
+         sum = (crc ^ extract) & 0x01;
+         crc >>= 1;
+         if (sum)
+            crc ^= 0x8C;
+         extract >>= 1;
+      }
+      data++;
+   }
+   return crc;
+}
 
 void start_at(){
   if(!hc12_is_atmode){
     digitalWrite(HC12_SET_PIN, LOW);//Moves device into at mode
-    delay(10);
+    delay(30);
     hc12_is_atmode = true;
   }
 }
@@ -68,13 +109,13 @@ void locahEcho(){
   // Arduino TX Connected to HC12 rx overrides TTL device TX!, Arduino driver is stronger then TTL.
   // Echoing rx data on tx might resolve this, thus HC12 will see the data on it's rx (+pc echo)
   int ch;
-  stop_at();
+  //stop_at();
   ch = Serial.read();
   while(ch!=-1){
     Serial.write(ch);
     ch = Serial.read();
   }
-  start_at();
+  //start_at();
 }
 
 void hc12_sleep(){
@@ -82,19 +123,38 @@ void hc12_sleep(){
   Serial.println("AT+SLEEP");
   Serial.flush();
   // "AT+SLEEP CR,CL" - 10 chars, +start stop bits, 10*10 - 100 bits @ 9600 => 10.4ms
-  delay(11);
+  delay( DELAY_TX_DATA_MS(strlen("AT+SLEEP")+2)  );
+  delay(100);
   stop_at(); // Sleep will be in effect after leaving AT mode.
 }
 
 void hc12_sleep_exit(){
+  //NOTE: Something in here or multiple TAKES TIME to aqckiwre by the module!!!
+#ifndef RF_DONT_LEAVE_SLEEP
   start_at();
+  delay(15);
   stop_at();
-  delay(5);
+  delay(30);
+#endif
 }
 
-void clear(){
+void transmit(const byte *buf, size_t size){
+#ifndef RF_DONT_LEAVE_SLEEP
+  hc12_sleep_exit();
+#endif
+  Serial.write(buf, size);
+  //TODO: HLL DEBUG
+  Serial.flush();
+  // If not enugth delay hc12 will:
+  //   1. enter AT mode and will dismiss tx data
+  //   2. enter sleep mode and will kill tx data.
+  delay( DELAY_TX_DATA_MS(size) );
+  delay(50); //Extra delay for... what? This is needed...
+  hc12_sleep();
+}
+
+void clear_stats(){
   tx_counter = 0;
-  known_sensors = 0;
 }
 
 // Wakeup interrupt, TODO: needed?
@@ -117,50 +177,95 @@ void myWatchdogEnable() {  // turn on watchdog timer; interrupt mode every 2.0s
 }
 
 void avr_sleep(){
+  
   avr_sleeping = true;
   wdt_reset();
   myWatchdogEnable();
+#ifdef DEBUG_PRINTS
   Serial.println("Slp");
+#endif
   sleep_mode();
+  
+}
+
+byte mesurement_to_byte(float &mesurement){
+  // from 10dC (-10)
+  // Accuracy 0.5 deg (*2)
+  if(mesurement<=10 || mesurement>=100){
+    return 0;
+  }
+  // cap 0xff 
+  return (byte)( (mesurement-10)*2 );
 }
 
 int stam = 0;
 void mesure_and_send(){
+  memset(txframe, 0, sizeof(txframe) );
+  txframe[0] = snapshot_current.count;
+#ifdef DEBUG_PRINTS
   Serial.println("Req temp...");
+#endif
   sensors.requestTemperatures();
+#ifdef DEBUG_PRINTS
   Serial.println("Temp reqd.");
   Serial.println(stam++);
-  for(int i=0; i<sensors.getDS18Count(); i++)
+#endif
+  //byte cur_addr[8];
+  byte *cur_addr;
+
+  // Iterate all sensors that are `considered installed`
+  // Only checkout one that are available
+  // but transmit all of them (dead ones with the value 0).
+  for(int i=0; i<snapshot_current.count; i++)
   {
-    Serial.print("Sensor #");
-    Serial.print(i);
-    Serial.print(" ");
-    Serial.print(sensors.getTempCByIndex(i));
-    Serial.print("c ");
-
-    /*Serial.print("Res: ");
-    Serial.print(sensors.getResolution());*/
-
-    Serial.print("Raw: ");
-    DeviceAddress deviceAddress;
-	  if (!sensors.getAddress(deviceAddress, i)) {
+    if(snapshot_current.sensors[i].available){
+      cur_addr = snapshot_current.sensors[i].address;
+      //float reading = sensors.getTempCByIndex(i);
+      float reading = sensors.getTempC(cur_addr);
+      //txframe[1+GetIndexByAddr(cur_addr, snapshot_current) ] = mesurement_to_byte(reading);
+      txframe[1+i ] = mesurement_to_byte(reading);
+#ifdef DEBUG_PRINTS
+      Serial.print("Sensor #");
       Serial.print(i);
-      Serial.println(" NF");
-  		return ;
-  	}
-	  sensors.getTempC((uint8_t*) deviceAddress);
-    int16_t raw_temp = sensors.getTemp(deviceAddress);
-    Serial.print(raw_temp);
-    Serial.print(" ");
-    itoa(raw_temp, binstr_buf, 2);
-    Serial.print( binstr_buf );
+      Serial.print(" ");
+      Serial.print( reading );
+      Serial.print("c ");
+#endif
+      /*
+      Serial.print("Raw: ");
+      DeviceAddress deviceAddress;
+      if (!sensors.getAddress(deviceAddress, i)) {
+        Serial.print(i);
+        Serial.println(" NF");
+        return ;
+      }
+      sensors.getTempC((uint8_t*) deviceAddress);
+      int16_t raw_temp = sensors.getTemp(deviceAddress);
+      Serial.print(raw_temp);
+      Serial.print(" ");
+      itoa(raw_temp, binstr_buf, 2);
+      Serial.print( binstr_buf );
 
-    Serial.println();
+      Serial.println();*/
+    }
   }
-
+  // Checksum
+  txframe[1+txframe[0]] = CRC8(txframe, 1+txframe[0]);
+  delay(200);
+  transmit(txframe, 1+txframe[0]+1);
+/*#ifdef JUST_TEST_RF_ON_BOOT
+  delay(650);
+#endif*/
 }
 
 void setup_hc12(){
+  //TODO: DEBUG
+#ifdef JUST_TEST_RF_ON_BOOT
+  Serial.begin(HC12_DEFAULT_BAUDRATE);
+  Serial.println("HELLO WORLD!!!");
+  Serial.flush();
+  delay(20);
+#endif  
   pinMode(HC12_SET_PIN, OUTPUT);
   digitalWrite(HC12_SET_PIN, HIGH);
   Serial.begin(HC12_DEFAULT_BAUDRATE);
@@ -169,7 +274,9 @@ void setup_hc12(){
 
 
 void eeprom_save(){
+#ifdef DEBUG_PRINTS
   Serial.println("EEPROM: Saving");
+#endif
   /*EEPROM.put(EEPROM_SENSORS_NUM_ADDR, nv_sensors);
   EEPROM.put(EEPROM_SENSORS_LIST_ADDR,  nv_sensors_list);*/
 }
@@ -226,42 +333,59 @@ void configure_sensors(){
   sensors.setWaitForConversion(true); // use with isConversionComplete ?
 }
 
-SensorSnapshot snapshot_nvram;
-SensorSnapshot snapshot_detected;
-SensorSnapshot snapshot_current;
-
 void setup(void) {
   setup_hc12();
+#ifdef ACTIVATE_TEST_MODULE
+  return;
+#endif
   hc12_sleep();
 
   set_sleep_mode(SLEEP_MODE_PWR_SAVE);
 
   EEPROM.begin();
-  clear();
+  clear_stats();
 
   // Load known sensors address from NVRAM
   FromEEPROM(snapshot_nvram);
 
   // Find active sensors on bus - sensors object is now populated
+  sensors.begin();
   FromDallas(sensors, snapshot_detected);
-
+#ifdef DEBUG_PRINTS
+  Serial.print("Dallas lib: ");
+  Serial.println(snapshot_detected.count);
+#endif
+  // Take the remembered sensors, and mark which of them is currently available
+  // Returns the amount of available sensors from memory
   byte available_from_nvram = MarkActive(snapshot_nvram, snapshot_detected);
 
+  // New sensors = detected - (remembered&detected)
   // Find how many new sensors, if > RELEARN_SENSORS_THRESHOLD, reset them.
   byte new_sensors_count = snapshot_detected.count - available_from_nvram;
+#ifdef DEBUG_PRINTS
   Serial.print("Found ");
   Serial.print(new_sensors_count);
   Serial.print(" new sensors");
-
-  if(new_sensors_count> RELEARN_SENSORS_THRESHOLD){
-    nv_sensors = s_count;
-
+#endif
+  if(new_sensors_count>=RELEARN_SENSORS_THRESHOLD){
+#ifdef DEBUG_PRINTS
+    Serial.println(">=THRESHOLD");
+#endif
+    // Delete all sensors, learn the new ones
+    snapshot_current = snapshot_detected;
+    if(snapshot_current.count>0){
+      eeprom_save();
+    }
   }else{
+#ifdef DEBUG_PRINTS
+    Serial.println("<THRESHOLD");
+#endif
     // Either 0 or .. RELEARN_SENSORS_THRESHOLD)
-    // Copy found sensors to NVRAM
+    // Learn the new_sensors_count
+    snapshot_current = snapshot_nvram;
+    Merge(snapshot_current, snapshot_detected);
 
-
-    // Don't waist EEPROM writes
+    // Don't waste EEPROM writes
     if(new_sensors_count>0){
       eeprom_save();
     }
@@ -277,8 +401,165 @@ void setup(void) {
   configure_sensors();
 }
 
+void test_hc12_safe_sleep(){
+    delay(400);
+    start_at();
+    delay(100);
+    Serial.println("AT+SLEEP");
+    Serial.flush();
+    delay(100);
+    locahEcho(); //Should show OK+SLEEP
+    delay(500 );
+    stop_at();
+    delay(400 );
+}
+
+void test_hc12_safe_wakeup(){
+    Serial.flush();
+    delay(600);
+    start_at();
+    delay(200);
+    stop_at();
+    delay(600 );
+}
+
+void test_hc12(){
+    hc12_is_atmode = false;
+    Serial.begin(HC12_DEFAULT_BAUDRATE);
+
+    test_hc12_safe_wakeup();
+
+    //Seen on RX side
+    Serial.println("TEST MODULE");
+    Serial.flush();
+    delay(500);
+    
+    /*
+    start_at();
+    delay(300);
+    Serial.println("1)AT-Shoudn't be seen on RX");
+    Serial.flush();
+    // Should show an error
+    locahEcho();
+    delay( 1000 );
+    stop_at();
+    */
+
+    test_hc12_safe_sleep();
+    Serial.println("2)Slp-houldn't be seen on RX");
+    Serial.flush();
+    delay(500 );
+
+    start_at();
+    delay(100);
+    stop_at();
+    Serial.println("3)Should show on RX(100,0)");
+    Serial.flush();
+    delay(500);
+
+    test_hc12_safe_sleep();
+    Serial.println("4)Slp-houldn't be seen on RX");
+    Serial.flush();
+    delay(500 );
+
+    start_at();
+    delay(10);
+    stop_at();
+    delay(10);
+    Serial.println("5)Should show on RX(10,10)");
+    Serial.flush();
+    delay(500 );
+
+    /// ********For leaving sleep mode, 20 after at start, 20 after at end seems sufficient to exit sleep
+    test_hc12_safe_sleep();
+    Serial.println("6)Slp-houldn't be seen on RX");
+    Serial.flush();
+    delay(100);
+    start_at();
+    delay(20 );
+    stop_at();
+    delay(20 );
+    Serial.println("7)Should show on RX(20,20)");
+    Serial.flush();
+    delay(500 );
+
+
+    test_hc12_safe_sleep();
+    Serial.println("8)Slp-houldn't be seen on RX");
+    Serial.flush();
+    delay(100);
+    start_at();
+    delay(100 );
+    stop_at();
+    delay(100 );
+    Serial.println("9)Should show on RX(100,100)");
+    Serial.flush();
+    delay(500 );
+
+    test_hc12_safe_wakeup();
+    Serial.println("10)Baseline for go-to-sleep Seen on RX");
+    Serial.flush();
+    delay(100);
+    start_at();
+    Serial.println("AT+SLEEP");
+    Serial.flush();
+    stop_at();
+    Serial.println("11)Slp-houldn't be seen on RX(0,0,0)");
+    Serial.flush();
+    delay(500);
+
+    test_hc12_safe_wakeup();
+    Serial.println("12)Baseline for go-to-sleep Seen on RX");
+    Serial.flush();
+    delay(100);
+    start_at();
+    delay(20);
+    Serial.println("AT+SLEEP");
+    Serial.flush();   
+    delay(100);
+    stop_at();
+    delay(20);
+    Serial.println("13)Slp-houldn't be seen on RX(20,100,20)");
+    Serial.flush();
+    delay(500);
+
+
+    test_hc12_safe_wakeup();
+    Serial.println("14)Baseline for go-to-sleep Seen on RX");
+    Serial.flush();
+    delay(100);
+    start_at();
+    delay(40);
+    Serial.println("AT+SLEEP");
+    Serial.flush();   
+    delay(100);
+    stop_at();
+    delay(40);
+    Serial.println("15)Slp-houldn't be seen on RX(40,100,40)");
+    Serial.flush();
+    delay(500);
+
+    // Looks like it goes to sleep even with 0,0,0; Do sanity without flush:
+    // Okay - No flush doesn't put device into sleep
+    test_hc12_safe_wakeup();
+    Serial.println("16)Baseline for go-to-sleep Seen on RX");
+    Serial.flush();
+    delay(100);
+    start_at();
+    Serial.println("AT+SLEEP");
+    stop_at();
+    Serial.println("17)Slp-houldn't be seen on RX(0,0,0 noflush)");
+    Serial.flush();
+    delay(500);
+}
+
 
 void loop() {
+#ifdef ACTIVATE_TEST_MODULE
+  test_hc12();
+  return;
+#endif
+  //if(false){
   if(!avr_sleeping){
     // Goto sleep
     hc12_sleep();
@@ -287,11 +568,14 @@ void loop() {
   }else{
     avr_sleeping = !avr_sleeping;
     hc12_sleep_exit();
+#ifdef DEBUG_PRINTS    
     Serial.print("ON/Data\n");
+#endif
     Serial.flush();
+    //Serial.println("ASDASDASDASDSADSASDASDASDASDASDSSDSaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaADAS");
     //exit HC12 sleep
     mesure_and_send();
-    delay(1000); // Stay on 1 S
+
     // Next loop - device goes into sleep
   }
 }
