@@ -202,7 +202,6 @@ void mesure_and_send(){
   Serial.println("Temp reqd.");
   Serial.println(stam++);
 #endif
-  //byte cur_addr[8];
   byte *cur_addr;
 
   // Iterate all sensors that are `considered installed`
@@ -243,12 +242,8 @@ void mesure_and_send(){
   }
   // Checksum
   txframe[1+txframe[0]] = CRC8(txframe, 1+txframe[0]);
-  delay(200);
-  transmit("01234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 37);
+  //transmit("01234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 37);
   transmit(txframe, 1+txframe[0]+1);
-/*#ifdef JUST_TEST_RF_ON_BOOT
-  delay(650);
-#endif*/
 }
 
 void setup_hc12(){
