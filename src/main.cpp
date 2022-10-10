@@ -2,11 +2,12 @@
 #include <EEPROM.h>
 // Current sketch static configuration
 
-// For debug
-#define ACTIVATE_TEST_MODULE
-#define RF_DONT_LEAVE_SLEEP
+
+//#define ACTIVATE_TEST_MODULE
+//#define RF_DONT_LEAVE_SLEEP
 #define JUST_TEST_RF_ON_BOOT
 #define DEBUG_PRINTS
+
 #define HC12_DEFAULT_BAUDRATE 9600
 #define HC12_SET_PIN 3
 #define MAX_SENSORS 6
@@ -92,7 +93,7 @@ char CRC8(const byte *data,int length)
 void start_at(){
   if(!hc12_is_atmode){
     digitalWrite(HC12_SET_PIN, LOW);//Moves device into at mode
-    delay(30);
+    delay(20);
     hc12_is_atmode = true;
   }
 }
@@ -101,6 +102,7 @@ void stop_at(){
   if(hc12_is_atmode){
     digitalWrite(HC12_SET_PIN, HIGH);
     hc12_is_atmode = false;
+    delay(20);
   }
 }
 
@@ -118,23 +120,26 @@ void locahEcho(){
   //start_at();
 }
 
+/// ********For ENTERING sleep mode, 45ms after setting low, 35 after command, 35 after setting high sufficient to exit sleep
 void hc12_sleep(){
   start_at();
+  delay(25); // another 25 to complete delay to 45
   Serial.println("AT+SLEEP");
   Serial.flush();
+  delay(35);
   // "AT+SLEEP CR,CL" - 10 chars, +start stop bits, 10*10 - 100 bits @ 9600 => 10.4ms
-  delay( DELAY_TX_DATA_MS(strlen("AT+SLEEP")+2)  );
-  delay(100);
+/*  delay( DELAY_TX_DATA_MS(strlen("AT+SLEEP")+2)  );
+  delay(100);*/
   stop_at(); // Sleep will be in effect after leaving AT mode.
+  delay(15); // another 15 to complete delay to 35
 }
 
+/// ********For leaving sleep mode, 20ms after setting low, 20 after setting high sufficient to exit sleep
 void hc12_sleep_exit(){
   //NOTE: Something in here or multiple TAKES TIME to aqckiwre by the module!!!
 #ifndef RF_DONT_LEAVE_SLEEP
   start_at();
-  delay(15);
   stop_at();
-  delay(30);
 #endif
 }
 
@@ -401,6 +406,7 @@ void setup(void) {
   configure_sensors();
 }
 
+#ifdef ACTIVATE_TEST_MODULE
 void test_hc12_safe_sleep(){
     delay(400);
     start_at();
@@ -408,7 +414,6 @@ void test_hc12_safe_sleep(){
     Serial.println("AT+SLEEP");
     Serial.flush();
     delay(100);
-    locahEcho(); //Should show OK+SLEEP
     delay(500 );
     stop_at();
     delay(400 );
@@ -418,7 +423,7 @@ void test_hc12_safe_wakeup(){
     Serial.flush();
     delay(600);
     start_at();
-    delay(200);
+    delay(300);
     stop_at();
     delay(600 );
 }
@@ -495,7 +500,11 @@ void test_hc12(){
     delay(500 );
 
 
-    /// ********For leaving sleep mode, 20 after at start, 20 after at end seems sufficient to exit sleep
+    /// ********For leaving sleep mode, 20ms after setting low, 20 after setting high sufficient to exit sleep
+    /// According to here https://github.com/RobertRol/SimpleHC12/blob/master/simpleHC12.h
+    ///    Datasheet has specified rise and low times for SET pin...
+    ///    https://statics3.seeedstudio.com/assets/file/bazaar/product/HC-12_english_datasheets.pdf
+    ///    setLowTime{50},setHighTime{90},cmdTime{100},
     test_hc12_safe_sleep();
     Serial.println("7.3)Slp-houldn't be seen on RX");
     Serial.flush();
@@ -520,20 +529,122 @@ void test_hc12(){
     Serial.flush();
     delay(500 );
 
+
     test_hc12_safe_wakeup();
-    Serial.println("10)Baseline for go-to-sleep Seen on RX");
+    Serial.println("10)Baseline for go-to-sleep Seen on RX(0,0,0)");
     Serial.flush();
     delay(100);
     digitalWrite(HC12_SET_PIN, LOW);//Moves device into at mode
-    Serial.println("AT+SLEEP");
+    Serial.println("AT+SLEEP");  
     Serial.flush();
     digitalWrite(HC12_SET_PIN, HIGH);//Stops AT mode;
     Serial.println("11)Slp-houldn't be seen on RX(0,0,0)");
     Serial.flush();
+
     delay(500);
 
+
     test_hc12_safe_wakeup();
-    Serial.println("12)Baseline for go-to-sleep Seen on RX");
+    Serial.println("11.1)Baseline for go-to-sleep Seen on RX(0,0,20)");
+    Serial.flush();
+    delay(100);
+    digitalWrite(HC12_SET_PIN, LOW);//Moves device into at mode
+    Serial.println("AT+SLEEP");  //Accepted by device
+    Serial.flush();
+    digitalWrite(HC12_SET_PIN, HIGH);//Stops AT mode;
+    delay(20); //Note that the device takes a while to leave AT mode...
+    //NOTE: I Think it first leaves 
+    Serial.println("11.2)Slp-houldn't be seen on RX(0,0,20)");
+    Serial.flush();
+    delay(500);
+
+    Serial.print("11.2-11.3)Between tests-Should not show");
+    Serial.flush();
+
+
+    test_hc12_safe_wakeup();
+    Serial.println("11.4)Baseline for go-to-sleep Seen on RX(20,0,20)");
+    Serial.flush();
+    delay(100);
+    digitalWrite(HC12_SET_PIN, LOW);//Moves device into at mode
+    delay(20); //Note that the device takes a while to leave AT mode...
+    Serial.println("AT+SLEEP");  //Accepted by device
+    Serial.flush();
+    digitalWrite(HC12_SET_PIN, HIGH);//Stops AT mode;
+    delay(35); //Note that the device takes a while to leave AT mode...
+    Serial.println("11.5)Slp-houldn't be seen on RX(20,0,20)");
+    Serial.flush();
+    delay(500);
+    Serial.print("11.5-11.6)Between tests-Should not show");
+    Serial.flush();
+
+    test_hc12_safe_wakeup();
+    Serial.println("11.6)Baseline for go-to-sleep Seen on RX(20,20,35)");
+    Serial.flush();
+    delay(100);
+    digitalWrite(HC12_SET_PIN, LOW);//Moves device into at mode
+    delay(20); //Note that the device takes a while to leave AT mode...
+    while(Serial.available()) Serial.read();
+    Serial.println("AT+SLEEP");  //Accepted by device
+    Serial.flush();
+    delay(20); 
+    digitalWrite(HC12_SET_PIN, HIGH);//Stops AT mode;
+    locahEcho(); //Should show OK+SLEEP
+    delay(35); //Note that the device takes a while to leave AT mode...
+    Serial.println("11.7)Slp-houldn't be seen on RX(20,20,20)");
+    Serial.flush();
+    delay(500);
+    Serial.print("11.7-12)Between tests-Should not show");
+    Serial.flush();
+
+
+
+    test_hc12_safe_wakeup();
+    Serial.println("11.8)Baseline for go-to-sleep Seen on RX(20,35,35)");
+    Serial.flush();
+    delay(100);
+    digitalWrite(HC12_SET_PIN, LOW);//Moves device into at mode
+    delay(20); //Note that the device takes a while to leave AT mode...
+    while(Serial.available()) Serial.read();
+    Serial.println("AT+SLEEP");  //Accepted by device
+    Serial.flush();
+    delay(35); 
+    digitalWrite(HC12_SET_PIN, HIGH);//Stops AT mode;
+    locahEcho(); //Should show OK+SLEEP
+    delay(35); //Note that the device takes a while to leave AT mode...
+    Serial.println("11.9)Slp-houldn't be seen on RX(20,35,20)");
+    Serial.flush();
+    delay(500);
+    Serial.print("11.9-12)Between tests-Should not show");
+    Serial.flush();
+
+
+    /////////// This is okay., Maybe we could go lower
+    /// ********For ENTERING sleep mode, 45ms after setting low, 35 after command, 35 after setting high sufficient to exit sleep
+    /// According to here https://github.com/RobertRol/SimpleHC12/blob/master/simpleHC12.h
+    ///    Datasheet has specified rise and low times for SET pin...
+    ///    https://statics3.seeedstudio.com/assets/file/bazaar/product/HC-12_english_datasheets.pdf
+    ///    setLowTime{50},setHighTime{90},cmdTime{100},
+    test_hc12_safe_wakeup();
+    Serial.println("11.10)Baseline for go-to-sleep Seen on RX(45,35,35)");
+    Serial.flush();
+    delay(100);
+    digitalWrite(HC12_SET_PIN, LOW);//Moves device into at mode
+    delay(45); //Note that the device takes a while to leave AT mode...
+    while(Serial.available()) Serial.read();
+    Serial.println("AT+SLEEP");  //Accepted by device
+    Serial.flush();
+    delay(35); 
+    digitalWrite(HC12_SET_PIN, HIGH);//Stops AT mode;
+    locahEcho(); //Should show OK+SLEEP
+    delay(35); //Note that the device takes a while to leave AT mode...
+    Serial.println("11.11)Slp-houldn't be seen on RX(45,35,20)");
+    Serial.flush();
+    delay(500);
+    
+
+    test_hc12_safe_wakeup();
+    Serial.println("12)Baseline for go-to-sleep Seen on RX(20,100,20)");
     Serial.flush();
     delay(100);
     digitalWrite(HC12_SET_PIN, LOW);//Moves device into at mode
@@ -549,7 +660,7 @@ void test_hc12(){
 
 
     test_hc12_safe_wakeup();
-    Serial.println("14)Baseline for go-to-sleep Seen on RX");
+    Serial.println("14)Baseline for go-to-sleep Seen on RX(40,100,40)");
     Serial.flush();
     delay(100);
     digitalWrite(HC12_SET_PIN, LOW);//Moves device into at mode
@@ -566,7 +677,7 @@ void test_hc12(){
     // Looks like it goes to sleep even with 0,0,0; Do sanity without flush:
     // Okay - No flush doesn't put device into sleep
     test_hc12_safe_wakeup();
-    Serial.println("16)Baseline for go-to-sleep Seen on RX");
+    Serial.println("16)Baseline for go-to-sleep Seen on RX(0,0,0 noflush)");
     Serial.flush();
     delay(100);
     digitalWrite(HC12_SET_PIN, LOW);//Moves device into at mode
@@ -575,8 +686,28 @@ void test_hc12(){
     Serial.println("17)Slp-houldn't be seen on RX(0,0,0 noflush)");
     Serial.flush();
     delay(500);
-}
 
+
+    // Testing lower delayt attempts for going to sleep
+    // NOPE
+    test_hc12_safe_wakeup();
+    Serial.println("18)Baseline for go-to-sleep Seen on RX(30,15,15)");
+    Serial.flush();
+    delay(100);
+    digitalWrite(HC12_SET_PIN, LOW);//Moves device into at mode
+    delay(30); //Note that the device takes a while to leave AT mode...
+    while(Serial.available()) Serial.read();
+    Serial.println("AT+SLEEP");  //Accepted by device
+    Serial.flush();
+    delay(15); 
+    digitalWrite(HC12_SET_PIN, HIGH);//Stops AT mode;
+    locahEcho(); //Should show OK+SLEEP
+    delay(15); //Note that the device takes a while to leave AT mode...
+    Serial.println("19)Slp-houldn't be seen on RX(30,15,15)");
+    Serial.flush();
+    delay(500);
+}
+#endif
 
 void loop() {
 #ifdef ACTIVATE_TEST_MODULE
