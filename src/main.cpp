@@ -59,15 +59,6 @@ OneWire  oneWire(SENSOR_1WIRE_PIN);  // (a 4.7K resistor is necessary)
 DallasTemperature sensors(&oneWire);
 
 unsigned int tx_counter;
-/*byte sensor_addresses[MAX_SENSORS][8];
-byte sensor_types[MAX_SENSORS];
-byte known_sensors;
-
-char binstr_buf[17];*/
-
-
-
-
 
 char CRC8(const byte *data,int length) 
 {
@@ -127,16 +118,12 @@ void hc12_sleep(){
   Serial.println("AT+SLEEP");
   Serial.flush();
   delay(35);
-  // "AT+SLEEP CR,CL" - 10 chars, +start stop bits, 10*10 - 100 bits @ 9600 => 10.4ms
-/*  delay( DELAY_TX_DATA_MS(strlen("AT+SLEEP")+2)  );
-  delay(100);*/
   stop_at(); // Sleep will be in effect after leaving AT mode.
   delay(15); // another 15 to complete delay to 35
 }
 
 /// ********For leaving sleep mode, 20ms after setting low, 20 after setting high sufficient to exit sleep
 void hc12_sleep_exit(){
-  //NOTE: Something in here or multiple TAKES TIME to aqckiwre by the module!!!
 #ifndef RF_DONT_LEAVE_SLEEP
   start_at();
   stop_at();
@@ -144,11 +131,11 @@ void hc12_sleep_exit(){
 }
 
 void transmit(const byte *buf, size_t size){
+  Serial.flush();
 #ifndef RF_DONT_LEAVE_SLEEP
   hc12_sleep_exit();
 #endif
   Serial.write(buf, size);
-  //TODO: HLL DEBUG
   Serial.flush();
   // If not enugth delay hc12 will:
   //   1. enter AT mode and will dismiss tx data
