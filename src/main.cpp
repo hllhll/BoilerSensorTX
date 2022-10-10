@@ -4,7 +4,7 @@
 
 
 //#define ACTIVATE_TEST_MODULE
-//#define RF_DONT_LEAVE_SLEEP
+//#define RF_DONT_LEAVE_SLEEP // For testing locally only
 #define JUST_TEST_RF_ON_BOOT
 #define DEBUG_PRINTS
 
@@ -257,6 +257,7 @@ void mesure_and_send(){
   // Checksum
   txframe[1+txframe[0]] = CRC8(txframe, 1+txframe[0]);
   delay(200);
+  transmit("01234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 37);
   transmit(txframe, 1+txframe[0]+1);
 /*#ifdef JUST_TEST_RF_ON_BOOT
   delay(650);
@@ -722,7 +723,6 @@ void loop() {
     avr_sleep();
   }else{
     avr_sleeping = !avr_sleeping;
-    hc12_sleep_exit();
 #ifdef DEBUG_PRINTS    
     Serial.print("ON/Data\n");
 #endif
