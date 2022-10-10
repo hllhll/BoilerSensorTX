@@ -191,9 +191,11 @@ byte mesurement_to_byte(float &mesurement){
 }
 
 int stam = 0;
+int txframe_pos;
 void mesure_and_send(){
   memset(txframe, 0, sizeof(txframe) );
   txframe[0] = snapshot_current.count;
+  txframe_pos = 1;
 #ifdef DEBUG_PRINTS
   Serial.println("Req temp...");
 #endif
@@ -213,15 +215,18 @@ void mesure_and_send(){
       cur_addr = snapshot_current.sensors[i].address;
       //float reading = sensors.getTempCByIndex(i);
       float reading = sensors.getTempC(cur_addr);
-      //txframe[1+GetIndexByAddr(cur_addr, snapshot_current) ] = mesurement_to_byte(reading);
-      txframe[1+i ] = mesurement_to_byte(reading);
+      txframe[txframe_pos] = mesurement_to_byte(reading);
 #ifdef DEBUG_PRINTS
       Serial.print("Sensor #");
       Serial.print(i);
       Serial.print(" ");
       Serial.print( reading );
       Serial.print("c ");
+      Serial.print(" Mesurment: ");
+      Serial.println( txframe[txframe_pos ] );
+      Serial.flush();
 #endif
+      txframe_pos++;
       /*
       Serial.print("Raw: ");
       DeviceAddress deviceAddress;
@@ -241,9 +246,14 @@ void mesure_and_send(){
     }
   }
   // Checksum
-  txframe[1+txframe[0]] = CRC8(txframe, 1+txframe[0]);
+  txframe[txframe_pos] = CRC8(txframe, 1+txframe[0]);
+  txframe_pos++;
+  Serial.print( txframe[0], 16 ); Serial.print( ' ' );
+  Serial.print( txframe[1], 16 ); Serial.print( ' ' );
+  Serial.print( txframe[2], 16 ); Serial.print( ' ' );
+  Serial.print( txframe[3], 16 ); Serial.println( ' ' );
   //transmit("01234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 37);
-  transmit(txframe, 1+txframe[0]+1);
+  transmit(txframe, txframe_pos);
 }
 
 void setup_hc12(){
