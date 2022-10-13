@@ -12,6 +12,7 @@ from ha_mqtt_device import *
 
 from pickletools import uint8
 import signal
+import crc8
 import time   # For the demo only
 import serial
 
@@ -72,15 +73,13 @@ def verify_sensor_initialized(sensors_count):
 def do_loop():
     global mqtt_client, temp_sensors, ser
     while True:
-        ser.read_all()
+        # ser.read_all()
         mqtt_client.loop()
         out = ''
         id_and_sensor_count = ser.read_until(size=3)  # Read identifier + active sensors
-        if len(id_and_sensor_count)>0:
-            print("%x " % id_and_sensor_count[0])
         #id_and_sensor_count = ser.read_until(size=3)  # Read identifier + active sensors
         if len(id_and_sensor_count)!=3:
-            print("bad len or no RX, expected 3, got=%d" % len(id_and_sensor_count))
+            #print("bad len or no RX, expected 3, got=%d" % len(id_and_sensor_count))
             continue
 
         if(id_and_sensor_count[0] != TRANSMITTER_ID_H or \
@@ -106,11 +105,19 @@ def do_loop():
             print("Bad expected size")
             continue
 
-        #TODO: Check CRC8
-
+        #TODO: Fix CRC check instead of sum
+        #hash = crc8.crc8()
+        full_buf = id_and_sensor_count + sensors_data
+        hash = sum(full_buf[:-1]) & 0xff
+        #hash.update(full_buf[:-1])
+        if int(hash)!=int.from_bytes(full_buf[-1:], "big"):
+            print("crc8 error")
+            #print("crc result: %s" % hash.hexdigest())
+            print("crc result: %d" % hash)
+            print("Sum: %d"% ((full_buf[0]+full_buf[1]+full_buf[2]+full_buf[3]+full_buf[4])&0xff))
         for i in range(sensors_count):
             temp_sensors[i].send(byte_to_mesurment(sensors_data[i]))
-        print("OK")
+        print("OK ")
 
         if interrupted:
             print("Gotta go")
