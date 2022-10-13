@@ -2,6 +2,7 @@
 #include <EEPROM.h>
 // Current sketch static configuration
 
+#define DEVICE_SIG ((unsigned short)0xCAFE)
 
 //#define ACTIVATE_TEST_MODULE
 //#define RF_DONT_LEAVE_SLEEP // For testing locally only
@@ -11,7 +12,7 @@
 #define HC12_DEFAULT_BAUDRATE 9600
 #define HC12_SET_PIN 3
 #define MAX_SENSORS 6
-byte txframe[MAX_SENSORS+1+1];
+
 #define RESOLUTION 12 // 9 bit-0.5°C
 #define RELEARN_SENSORS_THRESHOLD 2 // If x new sensors are found that are not in ROM, re-learn all of them
 #define SENSOR_1WIRE_PIN 14
@@ -191,14 +192,20 @@ byte mesurement_to_byte(float &mesurement){
 }
 
 int stam = 0;
-int txframe_pos;
+
+//ID + Sensors_count + <readings> + checksum
+byte txframe[1+MAX_SENSORS+1+1] = {
+  (DEVICE_SIG & 0xFF00) >> 8,
+  (DEVICE_SIG & 0xFF)
+};
+#define TXFRAME_SENSORCOUNT_POS 2
+int txframe_pos=TXFRAME_SENSORCOUNT_POS;
+
+
 void mesure_and_send(){
-  memset(txframe, 0, sizeof(txframe) );
-  txframe[0] = snapshot_current.count;
-  txframe_pos = 1;
-#ifdef DEBUG_PRINTS
-  Serial.println("Req temp...");
-#endif
+  txframe_pos=TXFRAME_SENSORCOUNT_POS;
+  txframe[txframe_pos] = snapshot_current.count;
+  txframe_pos++;
   sensors.requestTemperatures();
 #ifdef DEBUG_PRINTS
   Serial.println("Temp reqd.");
@@ -227,22 +234,6 @@ void mesure_and_send(){
       Serial.flush();
 #endif
       txframe_pos++;
-      /*
-      Serial.print("Raw: ");
-      DeviceAddress deviceAddress;
-      if (!sensors.getAddress(deviceAddress, i)) {
-        Serial.print(i);
-        Serial.println(" NF");
-        return ;
-      }
-      sensors.getTempC((uint8_t*) deviceAddress);
-      int16_t raw_temp = sensors.getTemp(deviceAddress);
-      Serial.print(raw_temp);
-      Serial.print(" ");
-      itoa(raw_temp, binstr_buf, 2);
-      Serial.print( binstr_buf );
-
-      Serial.println();*/
     }
   }
   // Checksum
@@ -251,8 +242,9 @@ void mesure_and_send(){
   Serial.print( txframe[0], 16 ); Serial.print( ' ' );
   Serial.print( txframe[1], 16 ); Serial.print( ' ' );
   Serial.print( txframe[2], 16 ); Serial.print( ' ' );
-  Serial.print( txframe[3], 16 ); Serial.println( ' ' );
-  //transmit("01234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", 37);
+  Serial.print( txframe[3], 16 ); Serial.print( ' ' );
+  Serial.print( txframe[4], 16 ); Serial.print( ' ' );
+  Serial.print( txframe[5], 16 ); Serial.println( ' ' );
   transmit(txframe, txframe_pos);
 }
 

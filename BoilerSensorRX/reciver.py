@@ -1,5 +1,11 @@
+## Fore home assistant MQTT, Make sure u toggle on force_update 
+
 SERIAL_PORT = "/dev/ttyS0"
 SERIAL_BAUDRATE = 9600
+MAX_SENSORS = 6
+TRANSMITTER_ID = 0xCAFE
+TRANSMITTER_ID_H = (TRANSMITTER_ID & 0xff00) >> 8
+TRANSMITTER_ID_L = (TRANSMITTER_ID & 0xff)
 
 # from https://github.com/leech001/hass-mqtt-discovery
 from ha_mqtt_device import *
@@ -39,38 +45,72 @@ def byte_to_mesurment(b: uint8):
 
 # Try use https://github.com/leech001/hass-mqtt-discovery for forwording requests to the MQTT Server
 
-mqtt_client = mqtt.Client("user")
+mqtt_client = mqtt.Client("BoilserSensorRX")
 
-example_device = Device(identifiers="000102aabbcc",
-    name="device1",
+boiler_tx = Device(identifiers=TRANSMITTER_ID,
+    name="BoilerSensor", # Can't have spaces
     sw_version=0,
-    model="MODEL1",
+    model="BoilerSensorTX0",
     manufacturer="HLL")
 
 temp_sensors = []
 
+def verify_sensor_initialized(sensors_count):
+    global temp_sensors, boiler_tx, mqtt_client
+    for i in range(len(temp_sensors), sensors_count):
+        temp_sensors.append(
+            Sensor(
+                mqtt_client,
+                ("BoilerTemp %d" % i),
+                parent_device=boiler_tx,
+                unit_of_measurement="°C",
+                topic_parent_level=("temp%d" % i),
+                force_update = True
+            )
+        )
+
 def do_loop():
-    global mqtt_client, sensor_temp1, sensor_temp2, temp_sensors
+    global mqtt_client, temp_sensors, ser
     while True:
+        ser.read_all()
         mqtt_client.loop()
         out = ''
-        s_payload_size = ser.read_until(size=1)
-        if len(s_payload_size)==0:
+        id_and_sensor_count = ser.read_until(size=3)  # Read identifier + active sensors
+        if len(id_and_sensor_count)>0:
+            print("%x " % id_and_sensor_count[0])
+        #id_and_sensor_count = ser.read_until(size=3)  # Read identifier + active sensors
+        if len(id_and_sensor_count)!=3:
+            print("bad len or no RX, expected 3, got=%d" % len(id_and_sensor_count))
             continue
-        active_sensors = s_payload_size[0]
-        # print("Reading %d bytes..." % active_sensors)
-        #out = ser.read_until(size = payload_size)
-        out = ser.read_until(size = 7)
-        # while ser.inWaiting() > 0:
-        #     out += ser.read(1)
 
-        #TODO: Use sensor array, initialize based on the length/count value etc.
-        if out != '':
-            # print(out)
-            # print("Sensor 0 %f" % byte_to_mesurment(out[0]))
-            # print("Sensor 1 %f" % byte_to_mesurment(out[1]))
-            sensor_temp1.send(byte_to_mesurment(out[0]))
-            sensor_temp2.send(byte_to_mesurment(out[1]))
+        if(id_and_sensor_count[0] != TRANSMITTER_ID_H or \
+           id_and_sensor_count[1] != TRANSMITTER_ID_L ):
+           print("bad id")
+           continue
+        
+        # ID Match
+        
+        curpos = 2
+        sensors_count = id_and_sensor_count[curpos]
+        curpos+=1
+        if(sensors_count>MAX_SENSORS):
+            print("Bad sensor count")
+            continue
+
+        #Sensor count within range
+        verify_sensor_initialized(sensors_count)
+
+        read_payload_size = sensors_count + 1 # +1 CRC8
+        sensors_data = ser.read_until(size = read_payload_size)
+        if(len(sensors_data)!=read_payload_size):
+            print("Bad expected size")
+            continue
+
+        #TODO: Check CRC8
+
+        for i in range(sensors_count):
+            temp_sensors[i].send(byte_to_mesurment(sensors_data[i]))
+        print("OK")
 
         if interrupted:
             print("Gotta go")
@@ -78,30 +118,9 @@ def do_loop():
             break
 
 def do_setup():
-    global mqtt_client,sensor_temp1,sensor_temp2
-    #mqtt_client.on_connect = on_connect
-    #mqtt_client.on_message = on_message
-    #mqtt_client.username_pw_set("user", "pass")
-    print("b4 connect")
+    global mqtt_client
     mqtt_client.connect("127.0.0.1", 1883, 10)
-
-    sensor_temp1 = Sensor(
-        mqtt_client,
-        "Temperature 1",
-        parent_device=example_device,
-        unit_of_measurement="°C",
-        topic_parent_level="temp1",
-    )
-
-    sensor_temp2 = Sensor(
-        mqtt_client,
-        "Temperature 2",
-        parent_device=example_device,
-        unit_of_measurement="°C",
-        topic_parent_level="temp2",
-    )
-    #mqtt_client.loop_forever()
-    print("after connect")
+    print("Connected to MQTT")
 
 if __name__=="__main__":
     do_setup()
