@@ -53,6 +53,7 @@ class Sensor(Component):
         unit_of_measurement,
         icon=None,
         topic_parent_level="",
+        unique_id = None,
         force_update = False
     ):
         super().__init__("sensor")
@@ -61,6 +62,7 @@ class Sensor(Component):
         self.name = name
         self.parent_device = parent_device
         self.force_update = force_update
+        self.unique_id = unique_id
         self.object_id = self.name.replace(" ", "_").lower()
         self.unit_of_measurement = unit_of_measurement
         self.icon = icon
@@ -75,7 +77,8 @@ class Sensor(Component):
             "state_topic": "~/state",
             "unit_of_measurement": self.unit_of_measurement,
             "device": self.parent_device,
-            "force_update": self.force_update
+            "force_update": self.force_update,
+            "unique_id": self.unique_id
         }
 
         if self.icon:

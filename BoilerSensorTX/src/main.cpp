@@ -8,6 +8,18 @@
 //#define RF_DONT_LEAVE_SLEEP // For testing locally only
 #define JUST_TEST_RF_ON_BOOT
 #define DEBUG_PRINTS
+#define AVR_SLEEP_TIME 2
+
+#if AVR_SLEEP_TIME==2 || AVR_SLEEP_TIME==4
+  #define AVR_SLEEP_TIME_OK
+#endif
+
+
+
+#ifndef AVR_SLEEP_TIME_OK
+#error "Bad AVR Sleep time"
+#endif
+
 
 #define HC12_DEFAULT_BAUDRATE 9600
 #define HC12_SET_PIN 3
@@ -128,12 +140,29 @@ uint8_t CRC8(uint8_t* data, size_t len) {
    return crc;
 }*/
 
-uint8_t CRC8(uint8_t* data, size_t len) {
+// stupid "add"
+/*uint8_t CRC8(uint8_t* data, size_t len) {
   byte sum = 0;
       for (size_t i = 0; i < len; i++) {
          sum+=data[i];
      }
   return sum;
+}*/
+
+// https://stackoverflow.com/questions/51731313/cross-platform-crc8-function-c-and-python-parity-check
+uint8_t CRC8( uint8_t *addr, uint8_t len) {
+      uint8_t crc=0;
+      for (uint8_t i=0; i<len;i++) {
+         uint8_t inbyte = addr[i];
+         for (uint8_t j=0;j<8;j++) {
+             uint8_t mix = (crc ^ inbyte) & 0x01;
+             crc >>= 1;
+             if (mix) 
+                crc ^= 0x8C;
+         inbyte >>= 1;
+      }
+    }
+   return crc;
 }
 
 void start_at(){
@@ -213,13 +242,15 @@ ISR(WDT_vect) {
 }
 
 
-
-
 void myWatchdogEnable() {  // turn on watchdog timer; interrupt mode every 2.0s
   cli();
   MCUSR = 0;
+#if AVR_SLEEP_TIME==2
   WDTCSR |= B00011000;
-  WDTCSR = B01000111;
+  WDTCSR =  B01000111;
+  // DO NOT USE  wdt_enable!! It bricks!
+  //wdt_enable(WDTO_4S);
+#endif
   sei();
 }
 

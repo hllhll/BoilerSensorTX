@@ -1,5 +1,3 @@
-## Fore home assistant MQTT, Make sure u toggle on force_update 
-
 SERIAL_PORT = "/dev/ttyS0"
 SERIAL_BAUDRATE = 9600
 MAX_SENSORS = 6
@@ -48,13 +46,29 @@ def byte_to_mesurment(b: uint8):
 
 mqtt_client = mqtt.Client("BoilserSensorRX")
 
-boiler_tx = Device(identifiers=TRANSMITTER_ID,
+boiler_tx = Device(
     name="BoilerSensor", # Can't have spaces
+    identifiers=("%x" % TRANSMITTER_ID),
     sw_version=0,
     model="BoilerSensorTX0",
     manufacturer="HLL")
 
 temp_sensors = []
+
+# https://stackoverflow.com/questions/51731313/cross-platform-crc8-function-c-and-python-parity-check
+def crc8(data):
+    crc = 0
+    for i in range(len(data)):
+        byte = data[i]
+        for b in range(8):
+            fb_bit = (crc ^ byte) & 0x01
+            if fb_bit == 0x01:
+                crc = crc ^ 0x18
+            crc = (crc >> 1) & 0x7f
+            if fb_bit == 0x01:
+                crc = crc | 0x80
+            byte = byte >> 1
+    return crc
 
 def verify_sensor_initialized(sensors_count):
     global temp_sensors, boiler_tx, mqtt_client
@@ -66,16 +80,22 @@ def verify_sensor_initialized(sensors_count):
                 parent_device=boiler_tx,
                 unit_of_measurement="°C",
                 topic_parent_level=("temp%d" % i),
-                force_update = True
+                unique_id = ("%x-%i" % (TRANSMITTER_ID, i) ),
+                force_update = True  ## Fore home assistant MQTT, Make sure u toggle on force_update
+                                     ## so last_update would update on every msg queued
             )
         )
 
 def do_loop():
     global mqtt_client, temp_sensors, ser
     while True:
-        # ser.read_all()
+        if interrupted:
+            print("Gotta go")
+            ser.close()
+            break
+
         mqtt_client.loop()
-        out = ''
+
         id_and_sensor_count = ser.read_until(size=3)  # Read identifier + active sensors
         #id_and_sensor_count = ser.read_until(size=3)  # Read identifier + active sensors
         if len(id_and_sensor_count)!=3:
@@ -108,7 +128,8 @@ def do_loop():
         #TODO: Fix CRC check instead of sum
         #hash = crc8.crc8()
         full_buf = id_and_sensor_count + sensors_data
-        hash = sum(full_buf[:-1]) & 0xff
+        #hash = sum(full_buf[:-1]) & 0xff
+        hash = crc8(full_buf[:-1]) & 0xff
         #hash.update(full_buf[:-1])
         if int(hash)!=int.from_bytes(full_buf[-1:], "big"):
             print("crc8 error")
@@ -117,12 +138,7 @@ def do_loop():
             print("Sum: %d"% ((full_buf[0]+full_buf[1]+full_buf[2]+full_buf[3]+full_buf[4])&0xff))
         for i in range(sensors_count):
             temp_sensors[i].send(byte_to_mesurment(sensors_data[i]))
-        print("OK ")
 
-        if interrupted:
-            print("Gotta go")
-            ser.close()
-            break
 
 def do_setup():
     global mqtt_client
