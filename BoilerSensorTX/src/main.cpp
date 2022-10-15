@@ -7,7 +7,7 @@
 //#define ACTIVATE_TEST_MODULE
 //#define RF_DONT_LEAVE_SLEEP // For testing locally only
 #define JUST_TEST_RF_ON_BOOT
-#define DEBUG_PRINTS
+//#define DEBUG_PRINTS
 // Options 2, 4, 8 in seconds
 #define AVR_SLEEP_TIME 8
 
@@ -274,7 +274,7 @@ void mesure_and_send(){
   Serial.print( txframe[4], 16 ); Serial.print( ' ' );
   Serial.print( txframe[5], 16 ); Serial.println( ' ' );*/
   transmit(txframe, txframe_pos);
-  transmit(txframe, txframe_pos);  // Redundency 
+  //transmit(txframe, txframe_pos);  // Optional: Redundency 
 }
 
 void setup_hc12(){
@@ -359,6 +359,10 @@ void setup(void) {
 #endif
   hc12_sleep();
 
+  // TODO: Improve power consumption
+  // Maybe power down?
+  // Further sleep modes reading: https://forum.arduino.cc/t/power-consumption-of-pins-in-different-pin-modes/567117/15
+  //
   set_sleep_mode(SLEEP_MODE_PWR_SAVE);
 
   EEPROM.begin();
@@ -734,13 +738,6 @@ void loop() {
   unsigned long cur_millis = millis() + (sleeping_millis);
   //if(false){
   //if(!avr_sleeping){
-#ifdef DEBUG_PRINTS    
-    Serial.print("cur_millis = ");
-    Serial.print(cur_millis);
-    Serial.print("last_sample_millis = ");
-    Serial.println(last_sample_millis);
-    Serial.flush();
-#endif  
   if( (!first_loop) && (cur_millis-last_sample_millis)<SAMPLE_INTERVAL ) {
 
     // Goto sleep
