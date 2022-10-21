@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <EEPROM.h>
+#include <avr/power.h>
 // Current sketch static configuration
 
 #define DEVICE_SIG ((unsigned short)0xCAFE)
@@ -7,9 +8,9 @@
 //#define ACTIVATE_TEST_MODULE
 //#define RF_DONT_LEAVE_SLEEP // For testing locally only
 #define JUST_TEST_RF_ON_BOOT
-//#define DEBUG_PRINTS
+// #define DEBUG_PRINTS
 // Options 2, 4, 8 in seconds
-#define AVR_SLEEP_TIME 8
+#define AVR_SLEEP_TIME 8000
 
 // in millis
 #define SAMPLE_INTERVAL 45000
@@ -18,7 +19,7 @@
   #error "Sample interval should be gt avr sleep time"
 #endif
 
-#if AVR_SLEEP_TIME==2 || AVR_SLEEP_TIME==4 || AVR_SLEEP_TIME==8
+#if AVR_SLEEP_TIME==2000 || AVR_SLEEP_TIME==4000 || AVR_SLEEP_TIME==8000 || AVR_SLEEP_TIME==500
   #define AVR_SLEEP_TIME_OK
 #endif
 
@@ -180,14 +181,17 @@ void myWatchdogEnable() {  // turn on watchdog timer; interrupt mode every 2.0s
   // 7    6    5    4    3  2     1    0
   //WDIF WDIE WDP3 WDCE WDE WDP2 WDP1 WDP0
   WDTCSR |= B00011000;
-#if AVR_SLEEP_TIME==2
+#if AVR_SLEEP_TIME==2000
   WDTCSR =  B01000111; // 2 Seconds
   // DO NOT USE  wdt_enable!! It bricks!
   //wdt_enable(WDTO_4S);
-#elif AVR_SLEEP_TIME==4
+#elif AVR_SLEEP_TIME==4000
   WDTCSR =  B01100000; // 4 Seconds
-#elif AVR_SLEEP_TIME==8
+  //         --^--^^^
+#elif AVR_SLEEP_TIME==8000
   WDTCSR =  B01100001; // 8 Seconds
+#elif AVR_SLEEP_TIME==500
+  WDTCSR =  B01000101; // 0.5 Seconds
 #endif
   sei();
 }
@@ -202,7 +206,7 @@ void avr_sleep(){
 #ifdef DEBUG_PRINTS
   Serial.println("Slp");
 #endif
-  sleeping_millis+=AVR_SLEEP_TIME*1000;
+  sleeping_millis+=AVR_SLEEP_TIME;
   sleep_mode();
   
 }
@@ -353,6 +357,25 @@ void configure_sensors(){
 }
 
 void setup(void) {
+  
+  // Doesnt doo much?
+  //for(int a=0;a<13;) pinMode(a++,INPUT_PULLUP);
+
+  //power_all_disable(); //This reduces ~10uA // But doesnt wake up :/
+  
+  // Next 3 commands reduces to 0.13 uA
+  power_adc_disable();
+  power_twi_disable();
+  power_spi_disable();
+  
+  // These causes problems, dont run them, device doesn't wake up
+  /* power_timer0_disable();
+  power_timer1_disable();
+  power_timer2_disable(); */
+  
+  // power_usart0_disable(); // This actually takes more power, I guess since the input pins are floating
+  // 1.45uA when I do this, 0.14 when not executed.
+
   setup_hc12();
 #ifdef ACTIVATE_TEST_MODULE
   return;
@@ -363,7 +386,8 @@ void setup(void) {
   // Maybe power down?
   // Further sleep modes reading: https://forum.arduino.cc/t/power-consumption-of-pins-in-different-pin-modes/567117/15
   //
-  set_sleep_mode(SLEEP_MODE_PWR_SAVE);
+  //set_sleep_mode(SLEEP_MODE_PWR_SAVE); //1.8 mA?
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN); //10uA
 
   EEPROM.begin();
   clear_stats();
