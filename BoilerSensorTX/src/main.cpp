@@ -5,15 +5,16 @@
 
 #define DEVICE_SIG ((unsigned short)0xCAFE)
 
+#define BENCHMARK_POWER
 //#define ACTIVATE_TEST_MODULE
 //#define RF_DONT_LEAVE_SLEEP // For testing locally only
 #define JUST_TEST_RF_ON_BOOT
-// #define DEBUG_PRINTS
+#define DEBUG_PRINTS
 // Options 2, 4, 8 in seconds
-#define AVR_SLEEP_TIME 8000
+#define AVR_SLEEP_TIME 4000
 
 // in millis
-#define SAMPLE_INTERVAL 45000
+#define SAMPLE_INTERVAL 8000
 
 #if SAMPLE_INTERVAL<AVR_SLEEP_TIME
   #error "Sample interval should be gt avr sleep time"
@@ -236,11 +237,19 @@ void mesure_and_send(){
   txframe_pos=TXFRAME_SENSORCOUNT_POS;
   txframe[txframe_pos] = snapshot_current.count;
   txframe_pos++;
+#ifdef BENCHMARK_POWER
+  unsigned long start = millis();
+  while( (millis()-start) < 3000  ) // Spend 3 seconds in re-gathering sensor data to check current
+  {
+    Serial.println("Rerequesting temps");
+    sensors.requestTemperatures();
+  }
+#endif
   sensors.requestTemperatures();
-#ifdef DEBUG_PRINTS
+/*#ifdef DEBUG_PRINTS
   Serial.println("Temp reqd.");
   Serial.println(stam++);
-#endif
+#endif*/
   byte *cur_addr;
 
   // Iterate all sensors that are `considered installed`
@@ -253,7 +262,7 @@ void mesure_and_send(){
       //float reading = sensors.getTempCByIndex(i);
       float reading = sensors.getTempC(cur_addr);
       txframe[txframe_pos] = mesurement_to_byte(reading);
-#ifdef DEBUG_PRINTS
+/*#ifdef DEBUG_PRINTS
       Serial.print("Sensor #");
       Serial.print(i);
       Serial.print(" ");
@@ -262,7 +271,7 @@ void mesure_and_send(){
       Serial.print(" Mesurment: ");
       Serial.println( txframe[txframe_pos ] );
       Serial.flush();
-#endif
+#endif*/
       txframe_pos++;
     }
   }
@@ -755,6 +764,9 @@ unsigned long last_sample_millis = 0;
 bool first_loop = true;
 
 void loop() {
+#ifdef DEBUG_PRINTS    
+  unsigned long loop_start = millis();
+#endif
 #ifdef ACTIVATE_TEST_MODULE
   test_hc12();
   return;
@@ -772,16 +784,15 @@ void loop() {
     first_loop = false;
     avr_sleeping = !avr_sleeping;
     last_sample_millis = millis() + sleeping_millis;
-#ifdef DEBUG_PRINTS    
-    Serial.print("ON/Data\n");
-    Serial.flush();
-#endif
-    //Serial.println("ASDASDASDASDSADSASDASDASDASDASDSSDSaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaADAS");
     //exit HC12 sleep
     mesure_and_send();
-
     // Next loop - device goes into sleep
   }
+#ifdef DEBUG_PRINTS    
+  unsigned long loop_time = millis() - loop_start;
+  Serial.print("Loop took ");
+  Serial.println(loop_time);
+#endif
 }
 
 
@@ -813,120 +824,4 @@ ROM = 28 25 91 96 F0 1 3C 85
   Data = 1 30 1 55 5 7F A5 A5 66 8E  CRC=8E
   Temperature = 19.00 Celsius, 66.20 Fahrenheit
   */
- 
- /*
-void setup(void) {
-  Serial.begin(9600);
-}
 
-void loop(void) {
-  byte i;
-  byte present = 0;
-  byte type_s;
-  byte data[12];
-  byte addr[8];
-  float celsius, fahrenheit;
-  
-  if ( !ds.search(addr)) {
-    Serial.println("No more addresses.");
-    Serial.println();
-    ds.reset_search();
-    delay(250);
-    return;
-  }
-  
-  Serial.print("ROM =");
-  for( i = 0; i < 8; i++) {
-    Serial.write(' ');
-    Serial.print(addr[i], HEX);
-  }
-
-  if (OneWire::crc8(addr, 7) != addr[7]) {
-      Serial.println("CRC is not valid!");
-      return;
-  }
-  Serial.println();
- 
-  // the first ROM byte indicates which chip
-  switch (addr[0]) {
-    case 0x10:
-      Serial.println("  Chip = DS18S20");  // or old DS1820
-      type_s = 1;
-      break;
-    case 0x28:
-      Serial.println("  Chip = DS18B20");
-      type_s = 0;
-      break;
-    case 0x22:
-      Serial.println("  Chip = DS1822");
-      type_s = 0;
-      break;
-    default:
-      Serial.println("Device is not a DS18x20 family device.");
-      return;
-  } 
-
-  ds.reset();
-  ds.select(addr);
-  ds.write(0x44, 1);        // start conversion, with parasite power on at the end
-  
-  delay(1000);     // maybe 750ms is enough, maybe not
-  // we might do a ds.depower() here, but the reset will take care of it.
-  
-  present = ds.reset();
-  ds.select(addr);    
-  ds.write(0xBE);         // Read Scratchpad
-
-  Serial.print("  Data = ");
-  Serial.print(present, HEX);
-  Serial.print(" ");
-  for ( i = 0; i < 9; i++) {           // we need 9 bytes
-    data[i] = ds.read();
-    Serial.print(data[i], HEX);
-    Serial.print(" ");
-  }
-  Serial.print(" CRC=");
-  Serial.print(OneWire::crc8(data, 8), HEX);
-  Serial.println();
-
-  // Convert the data to actual temperature
-  // because the result is a 16 bit signed integer, it should
-  // be stored to an "int16_t" type, which is always 16 bits
-  // even when compiled on a 32 bit processor.
-  int16_t raw = (data[1] << 8) | data[0];
-  if (type_s) {
-    raw = raw << 3; // 9 bit resolution default
-    if (data[7] == 0x10) {
-      // "count remain" gives full 12 bit resolution
-      raw = (raw & 0xFFF0) + 12 - data[6];
-    }
-  } else {
-    byte cfg = (data[4] & 0x60);
-    // at lower res, the low bits are undefined, so let's zero them
-    if (cfg == 0x00) raw = raw & ~7;  // 9 bit resolution, 93.75 ms
-    else if (cfg == 0x20) raw = raw & ~3; // 10 bit res, 187.5 ms
-    else if (cfg == 0x40) raw = raw & ~1; // 11 bit res, 375 ms
-    //// default is 12 bit resolution, 750 ms conversion time
-  }
-  celsius = (float)raw / 16.0;
-  fahrenheit = celsius * 1.8 + 32.0;
-  Serial.print("  Temperature = ");
-  Serial.print(celsius);
-  Serial.print(" Celsius, ");
-  Serial.print(fahrenheit);
-  Serial.println(" Fahrenheit");
-}
-
-/*
-void setup() {
-  // put your setup code here, to run once:
-  Serial.begin(HC12_DEFAULT_BAUDRATE);
-}
-
-void loop() {
-  sprintf(buf, "%s%d\n", str_fixed, counter++);
-  Serial.print(buf);
-  delay(1000);
-  // put your main code here, to run repeatedly:
-}
-*/
