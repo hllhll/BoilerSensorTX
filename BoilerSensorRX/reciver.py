@@ -5,6 +5,23 @@ TRANSMITTER_ID = 0xCAFE
 TRANSMITTER_ID_H = (TRANSMITTER_ID & 0xff00) >> 8
 TRANSMITTER_ID_L = (TRANSMITTER_ID & 0xff)
 
+# https://dev.to/tardisgallifrey/raspberry-pi-gpio-4-ways-45do
+"""
+Set up GPIO pin for use. Write "4" into the export file at /sys/class/gpio/export.
+Establish pin as input or output. Write "out" or "in" at /sys/class/gpio/gpio4/direction.
+Finally, turn pin on or off. Write "1" or "0" at /sys/class/gpio/gpio4/value.
+
+sudo echo 2 > /sys/class/gpio/export
+sudo echo out > /sys/class/gpio/gpio2/direction
+sudo echo 0 > /sys/class/gpio/gpio2/value  #Into AT Mode
+
+cu -l /dev/ttyS0 -s 9600
+
+AT
+
+sudo echo 1 > /sys/class/gpio/gpio2/value  # Out of AT Mode
+
+"""
 # from https://github.com/leech001/hass-mqtt-discovery
 from ha_mqtt_device import *
 

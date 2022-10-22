@@ -3,6 +3,7 @@
 #include <avr/power.h>
 // Current sketch static configuration
 
+// New: lower 3 bits used for count#
 #define DEVICE_SIG ((unsigned short)0xCAFE)
 
 //#define READ_TEMPS_WHILE_SLEEPING // This will send the temperatures as they were, up to AVR_SLEEP_TIME ago
@@ -27,7 +28,13 @@
 #endif
 #endif
 
+// HC12 Official english guide
+// http://www.hc01.com/downloads/HC-12%20english%20datasheets.pdf
+// https://www.elecrow.com/download/HC-12.pdf
+// https://www.datsi.fi.upm.es/docencia/Informatica_Industrial/DMC/HC-12_v2.3A.pdf
+
 #if AVR_SLEEP_TIME!=2000 && \
+    AVR_SLEEP_TIME!=1000 && \
     AVR_SLEEP_TIME!=4000 && \
     AVR_SLEEP_TIME!=8000 && \
     AVR_SLEEP_TIME!=500
@@ -202,7 +209,9 @@ void myWatchdogEnable() {  // turn on watchdog timer; interrupt mode every 2.0s
   // 7    6    5    4    3  2     1    0
   //WDIF WDIE WDP3 WDCE WDE WDP2 WDP1 WDP0
   WDTCSR |= B00011000;
-#if AVR_SLEEP_TIME==2000
+#if AVR_SLEEP_TIME==1000
+  WDTCSR =  B01000110; // 1 Seconds
+#elif AVR_SLEEP_TIME==2000
   WDTCSR =  B01000111; // 2 Seconds
   // DO NOT USE  wdt_enable!! It bricks!
   //wdt_enable(WDTO_4S);
@@ -248,15 +257,20 @@ int stam = 0;
 //ID + Sensors_count + <readings> + checksum
 uint8_t txframe[1+MAX_SENSORS+1+1] = {
   (DEVICE_SIG & 0xFF00) >> 8,
-  (DEVICE_SIG & 0xFF)
+  (DEVICE_SIG & 0xFF) & 0xF8,
+  0
 };
-#define TXFRAME_SENSORCOUNT_POS 2
+#define TXFRAME_SENSORCOUNT_POS 1
 int txframe_pos=TXFRAME_SENSORCOUNT_POS;
 
 
+/* TODO: Reduce number of bytes in TX,
+1. Find use 4 signature bits to be sensor count
+2. Use less bits for checksum or data (maybe parity?)*/
 void mesure_and_send(){
   txframe_pos=TXFRAME_SENSORCOUNT_POS;
-  txframe[txframe_pos] = snapshot_current.count;
+  txframe[txframe_pos] &= 0xF8;
+  txframe[txframe_pos] |= snapshot_current.count & 0x7;
   txframe_pos++;
 
 #ifndef READ_TEMPS_WHILE_SLEEPING
