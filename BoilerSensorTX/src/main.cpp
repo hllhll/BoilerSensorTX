@@ -5,29 +5,33 @@
 
 #define DEVICE_SIG ((unsigned short)0xCAFE)
 
-#define BENCHMARK_POWER
+//#define READ_TEMPS_WHILE_SLEEPING // This will send the temperatures as they were, up to AVR_SLEEP_TIME ago
+//#define BENCHMARK_POWER
 //#define ACTIVATE_TEST_MODULE
 //#define RF_DONT_LEAVE_SLEEP // For testing locally only
-#define JUST_TEST_RF_ON_BOOT
-#define DEBUG_PRINTS
+//#define JUST_TEST_RF_ON_BOOT
+//#define DEBUG_PRINTS
 // Options 2, 4, 8 in seconds
-#define AVR_SLEEP_TIME 4000
+#define AVR_SLEEP_TIME 1000
 
 // in millis
-#define SAMPLE_INTERVAL 8000
+#define SAMPLE_INTERVAL 2400
 
 #if SAMPLE_INTERVAL<AVR_SLEEP_TIME
   #error "Sample interval should be gt avr sleep time"
 #endif
 
-#if AVR_SLEEP_TIME==2000 || AVR_SLEEP_TIME==4000 || AVR_SLEEP_TIME==8000 || AVR_SLEEP_TIME==500
-  #define AVR_SLEEP_TIME_OK
+#ifdef READ_TEMPS_WHILE_SLEEPING
+#if AVR_SLEEP_TIME < 1000
+  #error "AVR_SLEEP_TIME Must be >= 1sec when READ_TEMPS_WHILE_SLEEPING"
+#endif
 #endif
 
-
-
-#ifndef AVR_SLEEP_TIME_OK
-#error "Bad AVR Sleep time"
+#if AVR_SLEEP_TIME!=2000 && \
+    AVR_SLEEP_TIME!=4000 && \
+    AVR_SLEEP_TIME!=8000 && \
+    AVR_SLEEP_TIME!=500
+#error "Bad AVR Sleep time"  
 #endif
 
 
@@ -149,32 +153,48 @@ void hc12_sleep_exit(){
 }
 
 void transmit(const byte *buf, size_t size){
+#ifdef DEBUG_PRINTS
+  Serial.println("Sending...");
+#endif
   Serial.flush();
 #ifndef RF_DONT_LEAVE_SLEEP
   hc12_sleep_exit();
 #endif
   Serial.write(buf, size);
+#ifdef BENCHMARK_POWER // ~120mA consumption while TX
+  unsigned long tx_start = millis();
+  while( (millis()-tx_start) < 1500 )
+  {
+   Serial.write(buf, size);
+  }
+#endif
   Serial.flush();
+#ifdef DEBUG_PRINTS
+  Serial.println("...Queued");
+#endif
   // If not enugth delay hc12 will:
   //   1. enter AT mode and will dismiss tx data
   //   2. enter sleep mode and will kill tx data.
   //delay( DELAY_TX_DATA_MS(size) );
   delay(50); //Extra delay for... what? This is needed...
+#ifdef BENCHMARK_POWER  // ~22.6 mA while idling RX
+  delay(3000);
+#endif
   hc12_sleep();
+#ifdef BENCHMARK_POWER  // ~9.2 While hc12 sleeping?
+  delay(5000);
+#endif
 }
 
 void clear_stats(){
   tx_counter = 0;
 }
 
-// Wakeup interrupt, TODO: needed?
 ISR(WDT_vect) {
   cli();
   wdt_disable();
-  // Serial.println("wakeup!");
   sei();
 }
-
 
 void myWatchdogEnable() {  // turn on watchdog timer; interrupt mode every 2.0s
   cli();
@@ -204,11 +224,12 @@ void avr_sleep(){
   avr_sleeping = true;
   wdt_reset();
   myWatchdogEnable();
-#ifdef DEBUG_PRINTS
+/*#ifdef DEBUG_PRINTS
   Serial.println("Slp");
-#endif
+  Serial.flush();
+#endif*/
   sleeping_millis+=AVR_SLEEP_TIME;
-  sleep_mode();
+  sleep_mode();  // POWER: ~0.8-0.7 ~ 0.005
   
 }
 
@@ -237,6 +258,8 @@ void mesure_and_send(){
   txframe_pos=TXFRAME_SENSORCOUNT_POS;
   txframe[txframe_pos] = snapshot_current.count;
   txframe_pos++;
+
+#ifndef READ_TEMPS_WHILE_SLEEPING
 #ifdef BENCHMARK_POWER
   unsigned long start = millis();
   while( (millis()-start) < 3000  ) // Spend 3 seconds in re-gathering sensor data to check current
@@ -246,6 +269,7 @@ void mesure_and_send(){
   }
 #endif
   sensors.requestTemperatures();
+#endif
 /*#ifdef DEBUG_PRINTS
   Serial.println("Temp reqd.");
   Serial.println(stam++);
@@ -296,11 +320,14 @@ void setup_hc12(){
   Serial.begin(HC12_DEFAULT_BAUDRATE);
   Serial.println("HELLO WORLD!!!");
   Serial.flush();
-  delay(20);
 #endif  
   pinMode(HC12_SET_PIN, OUTPUT);
   digitalWrite(HC12_SET_PIN, HIGH);
   Serial.begin(HC12_DEFAULT_BAUDRATE);
+
+#ifdef READ_TEMPS_WHILE_SLEEPING
+  sensors.setWaitForConversion(false);
+#endif
 }
 
 
@@ -763,9 +790,17 @@ void test_hc12(){
 unsigned long last_sample_millis = 0;
 bool first_loop = true;
 
+bool isLastSleepCycleBeforeTrnamission(unsigned long last_sample_millis,unsigned long  cur_millis){
+  /* when 
+      (cur_millis-last_sample_millis)<SAMPLE_INTERVAL )
+     Evaluate to true, time has passed, try to step this expression forword in time */
+  cur_millis += + AVR_SLEEP_TIME;
+  return !((cur_millis-last_sample_millis)<SAMPLE_INTERVAL );
+}
+
 void loop() {
-#ifdef DEBUG_PRINTS    
-  unsigned long loop_start = millis();
+#ifdef DEBUG_PRINTS 
+  Serial.print('.');
 #endif
 #ifdef ACTIVATE_TEST_MODULE
   test_hc12();
@@ -775,24 +810,39 @@ void loop() {
   //if(false){
   //if(!avr_sleeping){
   if( (!first_loop) && (cur_millis-last_sample_millis)<SAMPLE_INTERVAL ) {
-
+#ifdef READ_TEMPS_WHILE_SLEEPING
+    if (isLastSleepCycleBeforeTrnamission(last_sample_millis, cur_millis)){
+      sensors.requestTemperatures();
+#ifdef DEBUG_PRINTS    
+      Serial.println("next loop()-mesure_and_send");
+#endif 
+    }
+#endif
     // Goto sleep
-    // hc12_sleep();
     //stop_at(); // Leave AT so SLEEP takes effect- NO! DO NOT LEAVE AT, Current consumption is few uA lower
     avr_sleep();
   }else{
+#ifdef DEBUG_PRINTS    
+    unsigned long loop_start = millis();
+#endif
+#ifdef READ_TEMPS_WHILE_SLEEPING
+    if(first_loop){
+      sensors.requestTemperatures();
+      delay(1000);
+    }
+#endif
     first_loop = false;
     avr_sleeping = !avr_sleeping;
     last_sample_millis = millis() + sleeping_millis;
     //exit HC12 sleep
     mesure_and_send();
     // Next loop - device goes into sleep
-  }
 #ifdef DEBUG_PRINTS    
-  unsigned long loop_time = millis() - loop_start;
-  Serial.print("Loop took ");
-  Serial.println(loop_time);
+    unsigned long loop_time = millis() - loop_start;
+    Serial.print("Loop took ");
+    Serial.println(loop_time);
 #endif
+  }
 }
 
 
