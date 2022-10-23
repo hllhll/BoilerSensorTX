@@ -6,7 +6,7 @@
 // New: lower 3 bits used for count#
 #define DEVICE_SIG ((unsigned short)0xCAFE)
 
-//#define READ_TEMPS_WHILE_SLEEPING // This will send the temperatures as they were, up to AVR_SLEEP_TIME ago
+#define READ_TEMPS_WHILE_SLEEPING // This will send the temperatures as they were, up to AVR_SLEEP_TIME ago
 //#define BENCHMARK_POWER
 //#define ACTIVATE_TEST_MODULE
 //#define RF_DONT_LEAVE_SLEEP // For testing locally only

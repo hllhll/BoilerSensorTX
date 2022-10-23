@@ -21,6 +21,9 @@ AT
 
 sudo echo 1 > /sys/class/gpio/gpio2/value  # Out of AT Mode
 
+or use a library,
+or follow this https://dev.to/tardisgallifrey/raspberry-pi-gpio-4-ways-45do
+
 """
 # from https://github.com/leech001/hass-mqtt-discovery
 from ha_mqtt_device import *
