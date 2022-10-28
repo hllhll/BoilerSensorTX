@@ -13,10 +13,10 @@
 //#define JUST_TEST_RF_ON_BOOT
 //#define DEBUG_PRINTS
 // Options 2, 4, 8 in seconds
-#define AVR_SLEEP_TIME 1000
+#define AVR_SLEEP_TIME 8000
 
 // in millis
-#define SAMPLE_INTERVAL 2400
+#define SAMPLE_INTERVAL 45000
 
 #if SAMPLE_INTERVAL<AVR_SLEEP_TIME
   #error "Sample interval should be gt avr sleep time"
