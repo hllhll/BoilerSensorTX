@@ -5,26 +5,6 @@ TRANSMITTER_ID = 0xCAFE
 TRANSMITTER_ID_H = (TRANSMITTER_ID & 0xff00) >> 8
 TRANSMITTER_ID_L = (TRANSMITTER_ID & 0xf8)
 
-# https://dev.to/tardisgallifrey/raspberry-pi-gpio-4-ways-45do
-"""
-Set up GPIO pin for use. Write "4" into the export file at /sys/class/gpio/export.
-Establish pin as input or output. Write "out" or "in" at /sys/class/gpio/gpio4/direction.
-Finally, turn pin on or off. Write "1" or "0" at /sys/class/gpio/gpio4/value.
-
-sudo echo 2 > /sys/class/gpio/export
-sudo echo out > /sys/class/gpio/gpio2/direction
-sudo echo 0 > /sys/class/gpio/gpio2/value  #Into AT Mode
-
-cu -l /dev/ttyS0 -s 9600
-
-AT
-
-sudo echo 1 > /sys/class/gpio/gpio2/value  # Out of AT Mode
-
-or use a library,
-or follow this https://dev.to/tardisgallifrey/raspberry-pi-gpio-4-ways-45do
-
-"""
 # from https://github.com/leech001/hass-mqtt-discovery
 from ha_mqtt_device import *
 import hc12
@@ -201,9 +181,17 @@ def site_survey():
 
     rf = hc12.hc12(9600, "/dev/ttyS0", 3)  # HC12_SET_PIN for me is GPIO2 on BCM, Pin #3 on the board pinout
     rf.open()
-    print(1)
     #rf.check_baudrate(9600)
     rf.find_baudrate()
+    # Wait on the found baudrate for SYNC command from transmitter
+    rf.mode_txrx()
+
+    foundSync = False
+    while not foundSync:
+        # rx = rf.read_until([0,0], size=2)
+        rx = rf.read_until(size=2)
+        print(rx)
+
     while True:
         if interrupted or True:
             print("Gotta go")

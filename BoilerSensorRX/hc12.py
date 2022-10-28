@@ -37,7 +37,7 @@ class hc12(object):
             return
         self.set(1)
         time.sleep(0.040)
-        self._is_at = True
+        self._is_at = False
 
     def mode_txrx(self):
         self.mode_rxtx()
@@ -76,22 +76,23 @@ class hc12(object):
         self._ser.close()
 
     def check_baudrate(self, baud):
-        print(2)
         self.mode_at()  # Verify, should already be in it
-        print(3)
         if self._ser.isOpen():
             self._ser.close()
         self.ser_open_baudrate(baud)
-        print(4)
         self.at_command("AT")
         resp = self.at_response_raw()
         if resp=="OK\r\n".encode('ascii'):
             return True
         else:
             return False
-
+    
     def find_baudrate(self):
         for baudrate in hc12.BAUDRATES:
             if self.check_baudrate(baudrate):
                 print(baudrate)
                 return
+
+    def read_until(self, terminator= serial.LF, size=None):
+        # self._ser.write([0,0,0,0xff,0xff,0xff])
+        self._ser.read_until(terminator=terminator, size=size)
