@@ -3,7 +3,7 @@ SERIAL_BAUDRATE = 9600
 MAX_SENSORS = 6
 TRANSMITTER_ID = 0xCAFE
 TRANSMITTER_ID_H = (TRANSMITTER_ID & 0xff00) >> 8
-TRANSMITTER_ID_L = (TRANSMITTER_ID & 0xff)
+TRANSMITTER_ID_L = (TRANSMITTER_ID & 0xf8)
 
 # https://dev.to/tardisgallifrey/raspberry-pi-gpio-4-ways-45do
 """
@@ -27,12 +27,17 @@ or follow this https://dev.to/tardisgallifrey/raspberry-pi-gpio-4-ways-45do
 """
 # from https://github.com/leech001/hass-mqtt-discovery
 from ha_mqtt_device import *
+import hc12
+import RPi.GPIO as GPIO
+# HC12_SET_PIN for me is GPIO2 on BCM, Pin #3 on the board pinout
+
 
 from pickletools import uint8
 import signal
 import crc8
 import time   # For the demo only
 import serial
+import argparse
 
 def signal_handler(signal, frame):
     global interrupted
@@ -42,13 +47,6 @@ signal.signal(signal.SIGINT, signal_handler)
 
 interrupted = False
 # configure the serial connections (the parameters differs on the device you are connecting to)
-ser = serial.Serial(
-    port=SERIAL_PORT,
-    baudrate=SERIAL_BAUDRATE,
-    stopbits=serial.STOPBITS_ONE,
-    bytesize=serial.EIGHTBITS,
-    timeout=0.3
-)
 
 """byte mesurement_to_byte(float &mesurement){
   // from 10dC (-10)
@@ -106,6 +104,10 @@ def verify_sensor_initialized(sensors_count):
             )
         )
 
+def clear_rx():
+    global ser
+    ser.read_all()
+
 def do_loop():
     global mqtt_client, temp_sensors, ser
     while True:
@@ -116,26 +118,32 @@ def do_loop():
 
         mqtt_client.loop()
 
-        id_and_sensor_count = ser.read_until(size=3)  # Read identifier + active sensors
+        id_and_sensor_count = ser.read_until(size=2)  # Read identifier + active sensors
         #id_and_sensor_count = ser.read_until(size=3)  # Read identifier + active sensors
-        if len(id_and_sensor_count)!=3:
+        if len(id_and_sensor_count)!=2:
             #print("bad len or no RX, expected 3, got=%d" % len(id_and_sensor_count))
+            clear_rx()
             continue
 
         if(id_and_sensor_count[0] != TRANSMITTER_ID_H or \
-           id_and_sensor_count[1] != TRANSMITTER_ID_L ):
+           id_and_sensor_count[1]&0xf8 != TRANSMITTER_ID_L ):
            print("bad id")
+           clear_rx()
            continue
         
         # ID Match
+
+        sensors_count = id_and_sensor_count[1]&0x7
         
+        """
         curpos = 2
         sensors_count = id_and_sensor_count[curpos]
         curpos+=1
         if(sensors_count>MAX_SENSORS):
             print("Bad sensor count")
+            clear_rx()
             continue
-
+        """
         #Sensor count within range
         verify_sensor_initialized(sensors_count)
 
@@ -143,6 +151,7 @@ def do_loop():
         sensors_data = ser.read_until(size = read_payload_size)
         if(len(sensors_data)!=read_payload_size):
             print("Bad expected size")
+            clear_rx()
             continue
 
         #TODO: Fix CRC check instead of sum
@@ -156,15 +165,56 @@ def do_loop():
             #print("crc result: %s" % hash.hexdigest())
             print("crc result: %d" % hash)
             print("Sum: %d"% ((full_buf[0]+full_buf[1]+full_buf[2]+full_buf[3]+full_buf[4])&0xff))
+            clear_rx()
         for i in range(sensors_count):
             temp_sensors[i].send(byte_to_mesurment(sensors_data[i]))
+        print("ok")
 
-
-def do_setup():
+def do_on_disconnect():
     global mqtt_client
     mqtt_client.connect("127.0.0.1", 1883, 10)
+
+def do_setup():
+    global mqtt_client, ser, SERIAL_PORT, SERIAL_BAUDRATE
+    ser = serial.Serial(
+        port=SERIAL_PORT,
+        baudrate=SERIAL_BAUDRATE,
+        stopbits=serial.STOPBITS_ONE,
+        bytesize=serial.EIGHTBITS,
+        timeout=0.3
+    )
+
+    mqtt_client.on_disconnect = do_on_disconnect
+    mqtt_client.connect("127.0.0.1", 1883, 10)
+
     print("Connected to MQTT")
 
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='Recive invormation from BoilerSensorTX and transmit over MQTT in HomeAssistant-compatible manner')
+    parser.add_argument("-mqtt", required=False, default="127.0.0.1:1883", help="MQTT host:port")
+    parser.add_argument("-s", "--survey", action="store_true", help="Perform a site-survey when BoilerSensorTX is flashed with site-survey firmware")
+    return parser.parse_args()
+
+
+def site_survey():
+    global temp_sensors, ser
+
+    rf = hc12.hc12(9600, "/dev/ttyS0", 3)  # HC12_SET_PIN for me is GPIO2 on BCM, Pin #3 on the board pinout
+    rf.open()
+    print(1)
+    #rf.check_baudrate(9600)
+    rf.find_baudrate()
+    while True:
+        if interrupted or True:
+            print("Gotta go")
+            rf.close()
+            break
+
 if __name__=="__main__":
+    args = parse_arguments()
+    print(args)
+    if args.survey or True:
+        print("Survey")
+        site_survey()
     do_setup()
     do_loop()
