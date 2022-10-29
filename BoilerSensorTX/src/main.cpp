@@ -5,18 +5,22 @@
 
 // New: lower 3 bits used for count#
 #define DEVICE_SIG ((unsigned short)0xCAFE)
+#define SURVEY_SCAN
 
-#define READ_TEMPS_WHILE_SLEEPING // This will send the temperatures as they were, up to AVR_SLEEP_TIME ago
+//TODO: Don't forget to un-comment
+//#define READ_TEMPS_WHILE_SLEEPING // This will send the temperatures as they were, up to AVR_SLEEP_TIME ago
+
 //#define BENCHMARK_POWER
 //#define ACTIVATE_TEST_MODULE
 //#define RF_DONT_LEAVE_SLEEP // For testing locally only
 //#define JUST_TEST_RF_ON_BOOT
 //#define DEBUG_PRINTS
 // Options 2, 4, 8 in seconds
-#define AVR_SLEEP_TIME 8000
+//#define AVR_SLEEP_TIME 8000
+#define AVR_SLEEP_TIME 500
 
 // in millis
-#define SAMPLE_INTERVAL 45000
+#define SAMPLE_INTERVAL 1000
 
 #if SAMPLE_INTERVAL<AVR_SLEEP_TIME
   #error "Sample interval should be gt avr sleep time"
@@ -812,9 +816,78 @@ bool isLastSleepCycleBeforeTrnamission(unsigned long last_sample_millis,unsigned
   return !((cur_millis-last_sample_millis)<SAMPLE_INTERVAL );
 }
 
+
+const int cmdResBuffLen=60;
+char cmdResBuff[cmdResBuffLen];
+#include <util/atomic.h>
+// send cmd to HC12 module
+boolean hc12_cmd(const char cmd[]) {
+    Serial.print(cmd);
+    Serial.flush();
+    delay(300);
+    
+    // write response into buffer
+    size_t i = 0;
+    char input;
+    
+    while (Serial.available() && i<cmdResBuffLen-1) {
+        input = Serial.read();
+        // no interrupts allowed while writing to buffer
+        ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+            cmdResBuff[i] = input;
+            i++;
+        }
+    }
+    Serial.println(cmdResBuff);
+    return true;
+}
+
+const unsigned long baudArray[] = {1200,2400,4800,9600,19200,38400,57600,115200};
+const unsigned int baudArrayLen = 8;
+
+// from https://github.com/RobertRol/SimpleHC12/
+unsigned long findBaudrate() {
+    memset(cmdResBuff, 0, sizeof(cmdResBuff));
+    const char *cmdChar = "AT\r\n";
+    bool doStop=false;
+    size_t i=0;
+    boolean bufferOK;
+    start_at();
+    while (i<baudArrayLen && !doStop) {               
+        Serial.end();
+        delay(500);
+        Serial.begin(baudArray[i]);
+        delay(500);
+        
+        bufferOK=hc12_cmd(cmdChar);
+        if (!bufferOK) break;
+        doStop=(cmdResBuff[0]=='O'&&cmdResBuff[1]=='K');
+        delay(500);
+        if (!doStop) i++;
+    }
+    stop_at();
+    return (baudArray[i]);
+}
+
+void survey_scan_loop(){
+  //This seem to work
+  unsigned long baud = findBaudrate();
+  
+  /*Serial.end();
+  Serial.begin(HC12_DEFAULT_BAUDRATE);
+  Serial.print("Detected baud: ");
+  Serial.println(baud);
+  Serial.flush();*/
+}
+
+
 void loop() {
 #ifdef DEBUG_PRINTS 
   Serial.print('.');
+#endif
+#ifdef SURVEY_SCAN
+  survey_scan_loop();
+  return;
 #endif
 #ifdef ACTIVATE_TEST_MODULE
   test_hc12();
