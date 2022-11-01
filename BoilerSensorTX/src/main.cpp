@@ -431,6 +431,9 @@ void setup(void) {
   // 1.45uA when I do this, 0.14 when not executed.
 
   setup_hc12();
+#ifdef SURVEY_SCAN
+  return;
+#endif
 #ifdef ACTIVATE_TEST_MODULE
   return;
 #endif
@@ -822,6 +825,7 @@ char cmdResBuff[cmdResBuffLen];
 #include <util/atomic.h>
 // send cmd to HC12 module
 boolean hc12_cmd(const char cmd[]) {
+    memset(cmdResBuff, 0, sizeof(cmdResBuff));
     Serial.print(cmd);
     Serial.flush();
     delay(300);
@@ -838,22 +842,40 @@ boolean hc12_cmd(const char cmd[]) {
             i++;
         }
     }
-    Serial.println(cmdResBuff);
+    //Serial.println(cmdResBuff); // This causes bogus HC commands errors
+    Serial.flush();
     return true;
 }
 
 const unsigned long baudArray[] = {1200,2400,4800,9600,19200,38400,57600,115200};
 const unsigned int baudArrayLen = 8;
 
+bool led_next = HIGH;
+void toggle_led(){
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, led_next);
+  led_next = led_next == HIGH ? LOW : HIGH;
+}
+
+void blink(unsigned long d, int times){
+  times*=2;
+  for( ; times; times--){
+    toggle_led();
+    delay(d);
+  }
+}
+
 // from https://github.com/RobertRol/SimpleHC12/
-unsigned long findBaudrate() {
+unsigned long findBaudrateIdx() {
     memset(cmdResBuff, 0, sizeof(cmdResBuff));
+    void(* resetFunc) (void) = 0;
     const char *cmdChar = "AT\r\n";
-    bool doStop=false;
+    bool foundBaud=false;
     size_t i=0;
     boolean bufferOK;
     start_at();
-    while (i<baudArrayLen && !doStop) {               
+    while (i<baudArrayLen && !foundBaud) {         
+        toggle_led();      
         Serial.end();
         delay(500);
         Serial.begin(baudArray[i]);
@@ -861,23 +883,81 @@ unsigned long findBaudrate() {
         
         bufferOK=hc12_cmd(cmdChar);
         if (!bufferOK) break;
-        doStop=(cmdResBuff[0]=='O'&&cmdResBuff[1]=='K');
+        foundBaud=(cmdResBuff[0]=='O'&&cmdResBuff[1]=='K');
         delay(500);
-        if (!doStop) i++;
+        if (!foundBaud) i++;
     }
     stop_at();
-    return (baudArray[i]);
+    if(foundBaud){
+      toggle_led();
+      delay(400);
+      toggle_led();
+      delay(400);
+      toggle_led();
+      delay(400);
+      toggle_led();
+      delay(400);
+      toggle_led();
+      delay(400);    
+    }
+    if(!foundBaud){
+      toggle_led();
+      delay(600);
+      toggle_led();
+    }
+    return (i);
+    
+}
+
+// Send sync packet in highest power possible on all speeds (reciver speed is unknown)
+void set_hc_baudrate(int baudIndex)
+{
+  char buf[12];
+  snprintf(buf, 12, "AT+B%d\r\n", baudArray[baudIndex]);
+  start_at();
+  delay(40);
+  hc12_cmd(buf);
+  stop_at();
+  Serial.print("resp ");
+  Serial.println(cmdResBuff);
+  while(Serial.available()) Serial.read();
+  Serial.end();
+  Serial.begin(baudArray[baudIndex]);
+}
+void max_power()
+{
+  start_at();
+  delay(100);
+  hc12_cmd("AT+P8\r\n");
+  stop_at();
+}
+void send_sync()
+{
+  Serial.write("\x00\x00\x00\x00\x00\x00\x00", 7);
+  Serial.flush();
+}
+
+void send_sync_all(){
+  max_power();
+  //for(int i; i<baudArrayLen; i++)
+  //{
+  //blink(200,5);
+  set_hc_baudrate(0);
+  send_sync();
+  delay(100);
+  //}
 }
 
 void survey_scan_loop(){
   //This seem to work
-  unsigned long baud = findBaudrate();
-  
+  send_sync_all();
   /*Serial.end();
   Serial.begin(HC12_DEFAULT_BAUDRATE);
   Serial.print("Detected baud: ");
   Serial.println(baud);
   Serial.flush();*/
+
+
 }
 
 
@@ -886,6 +966,15 @@ void loop() {
   Serial.print('.');
 #endif
 #ifdef SURVEY_SCAN
+  unsigned long baud = findBaudrateIdx();
+  Serial.begin(1200);
+  Serial.print("Found ");
+  Serial.println(baudArray[baud]);
+  Serial.flush();
+  while(Serial.available()) Serial.read();
+  Serial.end();
+  Serial.begin( baudArray[baud]);  
+  
   survey_scan_loop();
   return;
 #endif
