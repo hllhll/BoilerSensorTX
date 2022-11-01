@@ -95,4 +95,10 @@ class hc12(object):
 
     def read_until(self, terminator= serial.LF, size=None):
         # self._ser.write([0,0,0,0xff,0xff,0xff])
-        self._ser.read_until(terminator=terminator, size=size)
+        return (self._ser.read_until(terminator=terminator, size=size))
+
+    def set_baudrate(self, baudrateIdx):
+        self.mode_at()
+        self.at_command( "AT+B%d\r\n" % hc12.BAUDRATES[baudrateIdx] )
+        print("Set Baudrate resp: " + str(self.at_response_raw()))
+        self.mode_rxtx()
