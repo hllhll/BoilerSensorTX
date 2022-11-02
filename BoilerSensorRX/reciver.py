@@ -196,6 +196,20 @@ def parse_arguments():
     parser.add_argument("-s", "--survey", action="store_true", help="Perform a site-survey when BoilerSensorTX is flashed with site-survey firmware")
     return parser.parse_args()
 
+def get_pings(rf: hc12):
+    while True:
+        count=0
+        if interrupted:
+            print("Gotta go")
+            rf.close()
+            break
+        
+        rx = rf.read_until(size=5)
+        if len(rx) == 5 and rx[0]==0xaa and rx[1] ==0x55:
+            power = rx[3]
+            tx_count = rx[2]
+            count+=1
+            print( "Got ping #%d power %d tx_count #%x" % (count, power, tx_count) )
 
 def site_survey():
     global temp_sensors, ser
@@ -215,7 +229,9 @@ def site_survey():
         print(rx)
         if len(rx)==5 and rx==bytes([0]*5):
             print("Survey Scan SYNC")
-
+            time.sleep(0.300)
+            rf.clear_rx()
+            get_pings(rf)
 
     while True:
         if interrupted or True:

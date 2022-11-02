@@ -924,11 +924,13 @@ void set_hc_baudrate(int baudIndex)
   Serial.end();
   Serial.begin(baudArray[baudIndex]);
 }
-void max_power()
+void set_power(byte power)
 {
+  char cmd[10];
+  snprintf(cmd, 7, "AT+P%d\r\n", power);
   start_at();
   delay(100);
-  hc12_cmd("AT+P8\r\n");
+  hc12_cmd(cmd);
   stop_at();
 }
 void send_sync()
@@ -937,27 +939,44 @@ void send_sync()
   Serial.flush();
 }
 
-void send_sync_all(){
-  max_power();
+void send_ping(unsigned int count, byte power){
+  byte buf[] = {0xaa, 0x55, count & 0xff, power, 0xff};
+  Serial.write(buf, sizeof(buf));
+  Serial.flush();
+}
+
+#define PING_COUNT 20
+
+void survey_scan_loop(){
+  unsigned int count = 0;
+  byte power = 8;
+  //This seem to work
+  unsigned long baud = findBaudrateIdx();
+  Serial.begin(1200);
+  //Serial.print("Found ");
+  Serial.println(baudArray[baud]);
+  Serial.flush();
+  while(Serial.available()) Serial.read();
+  Serial.end();
+  Serial.begin( baudArray[baud]);  
+
   //for(int i; i<baudArrayLen; i++)
   //{
   //blink(200,5);
+  set_power(power);
   set_hc_baudrate(0);
   send_sync();
-  delay(100);
-  //}
-}
-
-void survey_scan_loop(){
-  //This seem to work
-  send_sync_all();
-  /*Serial.end();
-  Serial.begin(HC12_DEFAULT_BAUDRATE);
-  Serial.print("Detected baud: ");
-  Serial.println(baud);
-  Serial.flush();*/
-
-
+  delay(400);
+  for(power; power; power--)
+  {
+    set_power(power);
+    for(int i=0; i<PING_COUNT; i++){
+      toggle_led();
+      send_ping(count, power);
+      count++;
+      delay(100);
+    }
+  }
 }
 
 
@@ -966,15 +985,6 @@ void loop() {
   Serial.print('.');
 #endif
 #ifdef SURVEY_SCAN
-  unsigned long baud = findBaudrateIdx();
-  Serial.begin(1200);
-  Serial.print("Found ");
-  Serial.println(baudArray[baud]);
-  Serial.flush();
-  while(Serial.available()) Serial.read();
-  Serial.end();
-  Serial.begin( baudArray[baud]);  
-  
   survey_scan_loop();
   return;
 #endif

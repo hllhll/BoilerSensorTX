@@ -93,6 +93,9 @@ class hc12(object):
                 print(baudrate)
                 return
 
+    def clear_rx(self):
+        self._ser.read_all()
+
     def read_until(self, terminator= serial.LF, size=None):
         # self._ser.write([0,0,0,0xff,0xff,0xff])
         return (self._ser.read_until(terminator=terminator, size=size))
