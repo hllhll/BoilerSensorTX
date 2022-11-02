@@ -103,5 +103,6 @@ class hc12(object):
     def set_baudrate(self, baudrateIdx):
         self.mode_at()
         self.at_command( "AT+B%d\r\n" % hc12.BAUDRATES[baudrateIdx] )
+        self._baudrate = hc12.BAUDRATES[baudrateIdx]
         print("Set Baudrate resp: " + str(self.at_response_raw()))
         self.mode_rxtx()

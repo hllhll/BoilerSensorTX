@@ -196,7 +196,12 @@ def parse_arguments():
     parser.add_argument("-s", "--survey", action="store_true", help="Perform a site-survey when BoilerSensorTX is flashed with site-survey firmware")
     return parser.parse_args()
 
+
+stats_map = {}
 def get_pings(rf: hc12):
+    # Example output:
+    # {8: 19, 7: 17, 6: 12, 5: 20, 4: 13, 3: 1}
+    global stats_map
     while True:
         count=0
         if interrupted:
@@ -209,7 +214,12 @@ def get_pings(rf: hc12):
             power = rx[3]
             tx_count = rx[2]
             count+=1
+            if power not in stats_map.keys():
+                stats_map[power] = 0
+            stats_map[power]+=1    
             print( "Got ping #%d power %d tx_count #%x" % (count, power, tx_count) )
+            print(stats_map)
+
 
 def site_survey():
     global temp_sensors, ser

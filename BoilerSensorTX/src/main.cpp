@@ -918,8 +918,8 @@ void set_hc_baudrate(int baudIndex)
   delay(40);
   hc12_cmd(buf);
   stop_at();
-  Serial.print("resp ");
-  Serial.println(cmdResBuff);
+  //Serial.print("resp ");
+  //Serial.println(cmdResBuff);
   while(Serial.available()) Serial.read();
   Serial.end();
   Serial.begin(baudArray[baudIndex]);
@@ -945,11 +945,27 @@ void send_ping(unsigned int count, byte power){
   Serial.flush();
 }
 
+
+#define UART_BITS_IN_BYTES(bytes) ((8+1+1)*(bytes))
+// How meny MS does it take to TX bytes amount of bytes\
+// Frame time is amount of time per bit *Nbits
+#define MINIMUM_MS_PER_BIT(baudrate) ((1/(baudrate/2))*1000)
+// if 600 bit per seconds,
+// each bit is 1/600 s per bit, or 1000/600 ms per bit
+#define MINIMUM_AIR_TIME(bytes, baudrate) ( UART_BITS_IN_BYTES(bytes)*MINIMUM_MS_PER_BIT(baudrate) )
+#define TOTAL_ITERATION_TIME 800 // at 1200 bitrate, this is around 833 W/O further dalay
 #define PING_COUNT 20
 
+#define TIME_PER_BAUDRATE (TOTAL_ITERATION_TIME*PING_COUNT*1.1) // ~20*800*1.1 17600
+
+//#define TIME_PER_BAUDRATE (PING_COUNT*MINIMUM_AIR_TIME(5,1200)) + FURTHER_ITERATION_DELAY*PING_COUNT
+// 5 bytes 1200 speed should be:
+// 20 * (10*5) * ( (1000/600) ) ~ 1666
+// with delay: ~7666 ms
 void survey_scan_loop(){
   unsigned int count = 0;
   byte power = 8;
+  byte nextBaudIndex;
   //This seem to work
   unsigned long baud = findBaudrateIdx();
   Serial.begin(1200);
@@ -965,18 +981,32 @@ void survey_scan_loop(){
   //blink(200,5);
   set_power(power);
   set_hc_baudrate(0);
+  nextBaudIndex = 1;
   send_sync();
   delay(400);
-  for(power; power; power--)
-  {
-    set_power(power);
-    for(int i=0; i<PING_COUNT; i++){
-      toggle_led();
-      send_ping(count, power);
-      count++;
-      delay(100);
+
+  unsigned long start_baud_millis = millis();
+  while(nextBaudIndex<baudArrayLen){
+    for(power=8; power; power--)
+    {
+      set_power(power);
+      for(int i=0; i<PING_COUNT; i++){
+        unsigned long iteration_start_millis = millis();
+        toggle_led();
+        send_ping(count, power);
+        count++;
+        while( ( millis()-iteration_start_millis ) < TOTAL_ITERATION_TIME ) ;
+      }
     }
-  }
+    // Wait for time sync
+    while( (millis()-start_baud_millis) < TIME_PER_BAUDRATE );
+    if( 1 ){
+      start_baud_millis = millis();
+      nextBaudIndex = 0;//TODO: TEST REMOVE THIS
+      set_hc_baudrate(nextBaudIndex);
+      nextBaudIndex++;
+    }
+  }//nextBaudIndex
 }
 
 
