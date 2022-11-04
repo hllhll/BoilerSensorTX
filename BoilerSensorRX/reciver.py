@@ -196,12 +196,30 @@ def parse_arguments():
     parser.add_argument("-s", "--survey", action="store_true", help="Perform a site-survey when BoilerSensorTX is flashed with site-survey firmware")
     return parser.parse_args()
 
-
+import datetime
 stats_map = {}
 def get_pings(rf: hc12):
     # Example output:
     # {8: 19, 7: 17, 6: 12, 5: 20, 4: 13, 3: 1}
+    """
+    #define TOTAL_ITERATION_TIME 800
+    #define PING_COUNT 20
+    #define POWER_START 8
+    #define POWER_END 6
+    #define NUM_POWER_STEPS (POWER_START-POWER_END+1)
+    #define TIME_PER_BAUDRATE ((TOTAL_ITERATION_TIME*PING_COUNT*1.2*NUM_POWER_STEPS)+2000) // ~20*800*1.1 17600
+    """
+    TOTAL_ITERATION_TIME = 800
+    PING_COUNT = 20
+    POWER_START = 8
+    POWER_END = 6
+    NUM_POWER_STEPS = (POWER_START-POWER_END+1)
+    TIME_PER_BAUDRATE = ((TOTAL_ITERATION_TIME*PING_COUNT*1.2*NUM_POWER_STEPS)+2000)
+    TIME_PER_BAUDRATE -= 1000
+
     global stats_map
+    budrate_iteration_start_time = datetime.datetime.now()
+    cur_baudrate_index = 0
     while True:
         count=0
         if interrupted:
@@ -218,8 +236,18 @@ def get_pings(rf: hc12):
                 stats_map[power] = 0
             stats_map[power]+=1    
             print( "Got ping #%d power %d tx_count #%x" % (count, power, tx_count) )
+        #millis_delta = ((datetime.datetime.now() - budrate_iteration_start_time).microseconds) / 1000
+        millis_delta = ((datetime.datetime.now() - budrate_iteration_start_time).total_seconds()) * 1000 
+        if ( millis_delta >TIME_PER_BAUDRATE):
+            print("Statistics for baudratre: %d" % rf._baudrate)
             print(stats_map)
-
+            budrate_iteration_start_time = datetime.datetime.now()
+            # if this was the last index
+            if cur_baudrate_index>len(rf.BAUDRATES):
+                return
+            cur_baudrate_index+=1
+            print("Switching to baudrate...")
+            rf.set_baudrate(cur_baudrate_index)
 
 def site_survey():
     global temp_sensors, ser
