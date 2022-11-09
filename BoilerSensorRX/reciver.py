@@ -212,9 +212,11 @@ def get_pings(rf: hc12):
     TOTAL_ITERATION_TIME = 800
     PING_COUNT = 20
     POWER_START = 8
-    POWER_END = 6
+    POWER_END = 3
+    BAUD_START = 0
+    BAUD_END = 5
     NUM_POWER_STEPS = (POWER_START-POWER_END+1)
-    TIME_PER_BAUDRATE = ((TOTAL_ITERATION_TIME*PING_COUNT*1.2*NUM_POWER_STEPS)+2000)
+    TIME_PER_BAUDRATE = ((TOTAL_ITERATION_TIME*PING_COUNT*1.1*NUM_POWER_STEPS)+2000)
     TIME_PER_BAUDRATE -= 1000
 
     global stats_map
@@ -241,11 +243,14 @@ def get_pings(rf: hc12):
         if ( millis_delta >TIME_PER_BAUDRATE):
             print("Statistics for baudratre: %d" % rf._baudrate)
             print(stats_map)
+            stats_map = {}
             budrate_iteration_start_time = datetime.datetime.now()
             # if this was the last index
-            if cur_baudrate_index>len(rf.BAUDRATES):
-                return
             cur_baudrate_index+=1
+            if cur_baudrate_index>BAUD_END:
+                print("Scan finished")
+                return
+            rf.clear_rx()
             print("Switching to baudrate...")
             rf.set_baudrate(cur_baudrate_index)
 
@@ -262,14 +267,16 @@ def site_survey():
     rf.set_baudrate(0) # Start with the slowest
     foundSync = False
     while not foundSync:
+        rf.clear_rx()
         # rx = rf.read_until([0,0], size=2)
         rx = rf.read_until(size=5)
-        print(rx)
+        # print(rx)
         if len(rx)==5 and rx==bytes([0]*5):
             print("Survey Scan SYNC")
             time.sleep(0.300)
             rf.clear_rx()
             get_pings(rf)
+            rf.set_baudrate(0) # revert back to initial budrate for next sync
 
     while True:
         if interrupted or True:

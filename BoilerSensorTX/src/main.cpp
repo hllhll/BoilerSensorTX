@@ -956,9 +956,14 @@ void send_ping(unsigned int count, byte power){
 #define TOTAL_ITERATION_TIME 800 // at 1200 bitrate, this is around 833 W/O further dalay
 #define PING_COUNT 20
 #define POWER_START 8
-#define POWER_END 6
+#define POWER_END 3
+#define BAUD_START 0
+#define BAUD_END 5
+
+//const unsigned long baudArray[] = {1200,2400,4800,9600,19200,38400,57600,115200};
+
 #define NUM_POWER_STEPS (POWER_START-POWER_END+1)
-#define TIME_PER_BAUDRATE ((TOTAL_ITERATION_TIME*PING_COUNT*1.2*NUM_POWER_STEPS)+2000) // ~20*800*1.1 17600
+#define TIME_PER_BAUDRATE ((TOTAL_ITERATION_TIME*PING_COUNT*1.1*NUM_POWER_STEPS)+2000) // ~20*800*1.1 17600
 
 //#define TIME_PER_BAUDRATE (PING_COUNT*MINIMUM_AIR_TIME(5,1200)) + FURTHER_ITERATION_DELAY*PING_COUNT
 // 5 bytes 1200 speed should be:
@@ -988,7 +993,7 @@ void survey_scan_loop(){
   delay(400);
 
   unsigned long start_baud_millis = millis();
-  while(nextBaudIndex<baudArrayLen){
+  while(nextBaudIndex<=BAUD_END){
     // TODO: fix for power>0
     for(power=POWER_START; power>=POWER_END; power--)
     {
@@ -997,18 +1002,14 @@ void survey_scan_loop(){
         unsigned long iteration_start_millis = millis();
         toggle_led();
         send_ping(count, power);
+        toggle_led();
         count++;
         while( ( millis()-iteration_start_millis ) < TOTAL_ITERATION_TIME ) ;
       }
     }
-    // Wait for time sync
-    while( (millis()-start_baud_millis) < TIME_PER_BAUDRATE ){
-      //delay(100);
-      //Serial.print('.');
-    }
     
     if( 1 ){
-      start_baud_millis = millis();
+      //Prepare for next iteration
       if (nextBaudIndex > (baudArrayLen-1) )
       {
         return;
@@ -1016,7 +1017,16 @@ void survey_scan_loop(){
       //nextBaudIndex = 0;//TODO: TEST REMOVE THIS
       set_hc_baudrate(nextBaudIndex);
       nextBaudIndex++;
+      set_power(power);
     }
+
+    // Wait for time sync - iteration end
+    while( (millis()-start_baud_millis) < TIME_PER_BAUDRATE ){
+      //delay(100);
+      //Serial.print('.');
+    }
+    start_baud_millis = millis();
+
   }//nextBaudIndex
 }
 

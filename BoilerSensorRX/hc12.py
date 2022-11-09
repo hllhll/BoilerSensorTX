@@ -13,6 +13,7 @@ class hc12(object):
         self._serial_port = serial_port
         self._ser = None
         self._is_at = False
+        self.BAUDRATES = hc12.BAUDRATES
         #self._hw_set_pin = None
 
     def set(self, value):
@@ -90,8 +91,8 @@ class hc12(object):
     def find_baudrate(self):
         for baudrate in hc12.BAUDRATES:
             if self.check_baudrate(baudrate):
-                print(baudrate)
-                return
+                print("Baudrate found: %d" % baudrate)
+                return baudrate
 
     def clear_rx(self):
         self._ser.read_all()
@@ -103,6 +104,10 @@ class hc12(object):
     def set_baudrate(self, baudrateIdx):
         self.mode_at()
         self.at_command( "AT+B%d\r\n" % hc12.BAUDRATES[baudrateIdx] )
+        resp = str(self.at_response_raw())
         self._baudrate = hc12.BAUDRATES[baudrateIdx]
-        print("Set Baudrate resp: " + str(self.at_response_raw()))
+        assert (resp.find("OK+")>=0)
+        #print("Set Baudrate resp: " + resp)
         self.mode_rxtx()
+        self.close()
+        self.ser_open_baudrate(self._baudrate)
