@@ -198,9 +198,41 @@ def parse_arguments():
 
 import datetime
 stats_map = {}
+
+""" Latest real expiriment statistics:
+Statistics for baudratre: 1200
+{8: 3}
+Statistics for baudratre: 2400
+{8: 19, 7: 20, 6: 20, 5: 20, 4: 20, 3: 20}
+Statistics for baudratre: 4800
+{}
+Statistics for baudratre: 9600
+{8: 20, 7: 19, 6: 20, 5: 20, 4: 20, 3: 20}
+^[[1;6HStatistics for baudratre: 19200
+{}
+Statistics for baudratre: 38400
+{8: 20, 7: 20, 6: 19, 5: 20, 4: 20, 3: 18}
+
+
+Statistics for baudratre: 1200
+{8: 19, 7: 20, 6: 20, 5: 20, 4: 20, 3: 20}
+Statistics for baudratre: 2400
+{8: 20, 7: 20, 6: 20, 5: 20, 4: 20, 3: 20}
+Statistics for baudratre: 4800
+{8: 20, 7: 19, 6: 20, 5: 20, 4: 20, 3: 20}
+Statistics for baudratre: 9600
+{8: 20, 7: 20, 6: 20, 5: 20, 4: 20, 3: 20}
+Statistics for baudratre: 19200
+{8: 20, 7: 20, 6: 19, 5: 20, 4: 20, 3: 20}
+Statistics for baudratre: 38400
+
+{}"""
+
 def get_pings(rf: hc12):
     # Example output:
     # {8: 19, 7: 17, 6: 12, 5: 20, 4: 13, 3: 1}
+
+    # Expirimant #1 ; looks like 2400 TX power (4),5,6 are ok
     """
     #define TOTAL_ITERATION_TIME 800
     #define PING_COUNT 20
