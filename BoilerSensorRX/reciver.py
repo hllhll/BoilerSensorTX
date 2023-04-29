@@ -1,5 +1,4 @@
 SERIAL_PORT = "/dev/ttyS0"
-SERIAL_BAUDRATE = 9600
 MAX_SENSORS = 6
 TRANSMITTER_ID = 0xCAFE
 TRANSMITTER_ID_H = (TRANSMITTER_ID & 0xff00) >> 8
@@ -29,6 +28,10 @@ or follow this https://dev.to/tardisgallifrey/raspberry-pi-gpio-4-ways-45do
 # from https://github.com/leech001/hass-mqtt-discovery
 from ha_mqtt_device import *
 import hc12
+
+SERIAL_BAUDRATE_IDX = 4 #19200
+SERIAL_BAUDRATE = hc12.hc12.BAUDRATES[SERIAL_BAUDRATE_IDX]
+
 import RPi.GPIO as GPIO
 # HC12_SET_PIN for me is GPIO2 on BCM, Pin #3 on the board pinout
 
@@ -110,7 +113,7 @@ def clear_rx():
     ser.read_all()
 
 def do_loop():
-    global mqtt_client, temp_sensors, ser
+    global mqtt_client, temp_sensors, ser, rf
     while True:
         if interrupted:
             print("Gotta go")
@@ -119,10 +122,13 @@ def do_loop():
 
         mqtt_client.loop()
 
-        id_and_sensor_count = ser.read_until(size=2)  # Read identifier + active sensors
+        id_and_sensor_count = rf.read_until(size=2)  # Read identifier + active sensors
+
         #id_and_sensor_count = ser.read_until(size=3)  # Read identifier + active sensors
+        if len(id_and_sensor_count) == 0:
+            continue
         if len(id_and_sensor_count)!=2:
-            #print("bad len or no RX, expected 3, got=%d" % len(id_and_sensor_count))
+            print("bad len or no RX, expected 3, got=%d" % len(id_and_sensor_count))
             clear_rx()
             continue
 
@@ -149,7 +155,7 @@ def do_loop():
         verify_sensor_initialized(sensors_count)
 
         read_payload_size = sensors_count + 1 # +1 CRC8
-        sensors_data = ser.read_until(size = read_payload_size)
+        sensors_data = rf.read_until(size = read_payload_size)
         if(len(sensors_data)!=read_payload_size):
             print("Bad expected size")
             clear_rx()
@@ -165,7 +171,7 @@ def do_loop():
             print("crc8 error")
             #print("crc result: %s" % hash.hexdigest())
             print("crc result: %d" % hash)
-            print("Sum: %d"% ((full_buf[0]+full_buf[1]+full_buf[2]+full_buf[3]+full_buf[4])&0xff))
+            # print("Sum: %d"% ((full_buf[0]+full_buf[1]+full_buf[2]+full_buf[3]+full_buf[4])&0xff))
             clear_rx()
         for i in range(sensors_count):
             temp_sensors[i].send(byte_to_mesurment(sensors_data[i]))
@@ -176,14 +182,25 @@ def do_on_disconnect():
     mqtt_client.connect("127.0.0.1", 1883, 10)
 
 def do_setup():
-    global mqtt_client, ser, SERIAL_PORT, SERIAL_BAUDRATE
+    global mqtt_client, ser, SERIAL_PORT, SERIAL_BAUDRATE, rf
+
+    rf = hc12.hc12(9600, "/dev/ttyS0", 3)  # HC12_SET_PIN for me is GPIO2 on BCM, Pin #3 on the board pinout
+    rf.open()
+    #rf.check_baudrate(9600)
+    baud = rf.find_baudrate()
+    print(" Found baudrate %d" % baud)
+    rf.set_baudrate(SERIAL_BAUDRATE_IDX)
+    rf.mode_rxtx()
+    """
     ser = serial.Serial(
         port=SERIAL_PORT,
         baudrate=SERIAL_BAUDRATE,
         stopbits=serial.STOPBITS_ONE,
         bytesize=serial.EIGHTBITS,
         timeout=0.8
-    )
+    )"""
+    # Hack, TODO: fix
+    ser = rf._ser
 
     mqtt_client.on_disconnect = do_on_disconnect
     mqtt_client.connect("127.0.0.1", 1883, 10)
@@ -319,7 +336,7 @@ def site_survey():
 if __name__=="__main__":
     args = parse_arguments()
     print(args)
-    if args.survey or True:
+    if args.survey or False:
         print("Survey")
         site_survey()
     do_setup()

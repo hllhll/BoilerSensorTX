@@ -5,7 +5,7 @@
 
 // New: lower 3 bits used for count#
 #define DEVICE_SIG ((unsigned short)0xCAFE)
-#define SURVEY_SCAN
+//#define SURVEY_SCAN
 
 //TODO: Don't forget to un-comment
 //#define READ_TEMPS_WHILE_SLEEPING // This will send the temperatures as they were, up to AVR_SLEEP_TIME ago
@@ -17,10 +17,14 @@
 //#define DEBUG_PRINTS
 // Options 2, 4, 8 in seconds
 //#define AVR_SLEEP_TIME 8000
-#define AVR_SLEEP_TIME 500
+#define AVR_SLEEP_TIME 8000
 
 // in millis
-#define SAMPLE_INTERVAL 1000
+//#define SAMPLE_INTERVAL 15000 // ==> real time ~22 @8s sleep
+//#define SAMPLE_INTERVAL 120000L // ==> real time 4.5m?
+//#define SAMPLE_INTERVAL 60000L // ==> real time ~70s
+//#define SAMPLE_INTERVAL 75000L // ==> real time 90s?
+#define SAMPLE_INTERVAL 95000L // ==> real time ?
 
 #if SAMPLE_INTERVAL<AVR_SLEEP_TIME
   #error "Sample interval should be gt avr sleep time"
@@ -46,7 +50,17 @@
 #endif
 
 
+const unsigned long baudArray[] = {1200,2400,4800,9600,19200,38400,57600,115200};
+const unsigned int baudArrayLen = 8;
+
+
+#define HC12_ASSUME_CURRENT_BAUD_EQ_TARGET true
 #define HC12_DEFAULT_BAUDRATE 9600
+#define HC12_TARGET_BAUDRATE_IDX 4 //19200
+#define HC12_TARGET_BAUDRATE (baudArray[HC12_TARGET_BAUDRATE_IDX])
+
+#define HC12_TARGET_POWER 3
+
 #define HC12_SET_PIN 3
 #define MAX_SENSORS 6
 
@@ -57,7 +71,7 @@
 //Amount of bits sent in UART TX of bytes bytes
 #define UART_BITS_IN_BYTES(bytes) ((8+1+1)*(bytes))
 // How meny MS does it take to TX bytes amount of bytes
-#define DELAY_TX_DATA_MS(bytes) ((UART_BITS_IN_BYTES(bytes)/HC12_DEFAULT_BAUDRATE)*1000*1.25)
+#define DELAY_TX_DATA_MS(bytes) ((UART_BITS_IN_BYTES(bytes)/HC12_TARGET_BAUDRATE)*1000*1.25)
 
 // OneWireNoResistor-1.0 ; On some devices it can possibly make the PULLUP resistor redunded.
 // NOTE: Does not work on all devices, and not in all cases, see https://wp.josh.com/2014/06/23/no-external-pull-up-needed-for-ds18b20-temp-sensor/
@@ -85,6 +99,10 @@ int counter = 0;
 char buf[100];
 
 
+const int cmdResBuffLen=60;
+char cmdResBuff[cmdResBuffLen];
+
+
 
 // OneWire DS18S20, DS18B20, DS1822 Temperature Example
 //
@@ -97,6 +115,48 @@ OneWire  oneWire(SENSOR_1WIRE_PIN);  // (a 4.7K resistor is necessary)
 DallasTemperature sensors(&oneWire);
 
 unsigned int tx_counter;
+
+#include <util/atomic.h>
+// send cmd to HC12 module
+boolean hc12_cmd(const char cmd[]) {
+    memset(cmdResBuff, 0, sizeof(cmdResBuff));
+    Serial.print(cmd);
+    Serial.flush();
+    delay(300);
+    
+    // write response into buffer
+    size_t i = 0;
+    char input;
+    
+    while (Serial.available() && i<cmdResBuffLen-1) {
+        input = Serial.read();
+        // no interrupts allowed while writing to buffer
+        ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+            cmdResBuff[i] = input;
+            i++;
+        }
+    }
+    //Serial.println(cmdResBuff); // This causes bogus HC commands errors
+    Serial.flush();
+    return true;
+}
+
+bool led_next = HIGH;
+void toggle_led(){
+//#ifdef SURVEY_SCAN
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, led_next);
+  led_next = led_next == HIGH ? LOW : HIGH;
+//#endif
+}
+
+void blink(unsigned long d, int times){
+  times*=2;
+  for( ; times; times--){
+    toggle_led();
+    delay(d);
+  }
+}
 
 // https://stackoverflow.com/questions/51731313/cross-platform-crc8-function-c-and-python-parity-check
 uint8_t CRC8( uint8_t *addr, uint8_t len) {
@@ -332,16 +392,101 @@ void mesure_and_send(){
   //transmit(txframe, txframe_pos);  // Optional: Redundency 
 }
 
+// from https://github.com/RobertRol/SimpleHC12/
+unsigned long findBaudrateIdx() {
+    memset(cmdResBuff, 0, sizeof(cmdResBuff));
+    void(* resetFunc) (void) = 0;
+    const char *cmdChar = "AT\r\n";
+    bool foundBaud=false;
+    size_t i=0;
+    boolean bufferOK;
+    start_at();
+    while (i<baudArrayLen && !foundBaud) {         
+        toggle_led();      
+        Serial.end();
+        delay(500);
+        Serial.begin(baudArray[i]);
+        delay(500);
+        
+        bufferOK=hc12_cmd(cmdChar);
+        if (!bufferOK) break;
+        foundBaud=(cmdResBuff[0]=='O'&&cmdResBuff[1]=='K');
+        delay(500);
+        if (!foundBaud) i++;
+    }
+    stop_at();
+//#ifdef SURVEY_SCAN
+    if(foundBaud){
+      toggle_led();
+      delay(400);
+      toggle_led();
+      delay(400);
+      toggle_led();
+      delay(400);
+      toggle_led();
+      delay(400);
+      toggle_led();
+      delay(400);    
+    }
+    if(!foundBaud){
+      toggle_led();
+      delay(600);
+      toggle_led();
+    }
+//#endif
+    return (i);
+    
+}
+
+// Send sync packet in highest power possible on all speeds (reciver speed is unknown)
+void set_hc_baudrate(int baudIndex)
+{
+  char buf[12];
+  snprintf(buf, 12, "AT+B%d\r\n", baudArray[baudIndex]);
+  start_at();
+  delay(40);
+  hc12_cmd(buf);
+  stop_at();
+  //Serial.print("resp ");
+  //Serial.println(cmdResBuff);
+  while(Serial.available()) Serial.read();
+  Serial.end();
+  Serial.begin(baudArray[baudIndex]);
+}
+void set_power(byte power)
+{
+  char cmd[10];
+  snprintf(cmd, 7, "AT+P%d\r\n", power);
+  start_at();
+  delay(100);
+  hc12_cmd(cmd);
+  stop_at();
+}
+
 void setup_hc12(){
   //TODO: DEBUG
 #ifdef JUST_TEST_RF_ON_BOOT
-  Serial.begin(HC12_DEFAULT_BAUDRATE);
+  Serial.begin(HC12_TARGET_BAUDRATE);
   Serial.println("HELLO WORLD!!!");
   Serial.flush();
 #endif  
+  // Congiure HC12 Set pin as output
   pinMode(HC12_SET_PIN, OUTPUT);
-  digitalWrite(HC12_SET_PIN, HIGH);
-  Serial.begin(HC12_DEFAULT_BAUDRATE);
+
+  if(!HC12_ASSUME_CURRENT_BAUD_EQ_TARGET){
+    // Find currently configured baudrate and start serial on it
+    unsigned long baud = findBaudrateIdx();
+    Serial.begin( baudArray[baud]);  
+  }else{
+    Serial.begin( HC12_TARGET_BAUDRATE );  
+  }
+  start_at();
+
+  set_power(HC12_TARGET_POWER);
+  set_hc_baudrate(HC12_TARGET_BAUDRATE_IDX);
+
+  digitalWrite(HC12_SET_PIN, HIGH); //stop_at
+  hc12_is_atmode = false;
 
 #ifdef READ_TEMPS_WHILE_SLEEPING
   sensors.setWaitForConversion(false);
@@ -529,7 +674,7 @@ void test_hc12_safe_wakeup(){
 
 void test_hc12(){
     hc12_is_atmode = false;
-    Serial.begin(HC12_DEFAULT_BAUDRATE);
+    Serial.begin(HC12_TARGET_BAUDRATE);
 
     test_hc12_safe_wakeup();
 
@@ -819,120 +964,6 @@ bool isLastSleepCycleBeforeTrnamission(unsigned long last_sample_millis,unsigned
   return !((cur_millis-last_sample_millis)<SAMPLE_INTERVAL );
 }
 
-
-const int cmdResBuffLen=60;
-char cmdResBuff[cmdResBuffLen];
-#include <util/atomic.h>
-// send cmd to HC12 module
-boolean hc12_cmd(const char cmd[]) {
-    memset(cmdResBuff, 0, sizeof(cmdResBuff));
-    Serial.print(cmd);
-    Serial.flush();
-    delay(300);
-    
-    // write response into buffer
-    size_t i = 0;
-    char input;
-    
-    while (Serial.available() && i<cmdResBuffLen-1) {
-        input = Serial.read();
-        // no interrupts allowed while writing to buffer
-        ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-            cmdResBuff[i] = input;
-            i++;
-        }
-    }
-    //Serial.println(cmdResBuff); // This causes bogus HC commands errors
-    Serial.flush();
-    return true;
-}
-
-const unsigned long baudArray[] = {1200,2400,4800,9600,19200,38400,57600,115200};
-const unsigned int baudArrayLen = 8;
-
-bool led_next = HIGH;
-void toggle_led(){
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, led_next);
-  led_next = led_next == HIGH ? LOW : HIGH;
-}
-
-void blink(unsigned long d, int times){
-  times*=2;
-  for( ; times; times--){
-    toggle_led();
-    delay(d);
-  }
-}
-
-// from https://github.com/RobertRol/SimpleHC12/
-unsigned long findBaudrateIdx() {
-    memset(cmdResBuff, 0, sizeof(cmdResBuff));
-    void(* resetFunc) (void) = 0;
-    const char *cmdChar = "AT\r\n";
-    bool foundBaud=false;
-    size_t i=0;
-    boolean bufferOK;
-    start_at();
-    while (i<baudArrayLen && !foundBaud) {         
-        toggle_led();      
-        Serial.end();
-        delay(500);
-        Serial.begin(baudArray[i]);
-        delay(500);
-        
-        bufferOK=hc12_cmd(cmdChar);
-        if (!bufferOK) break;
-        foundBaud=(cmdResBuff[0]=='O'&&cmdResBuff[1]=='K');
-        delay(500);
-        if (!foundBaud) i++;
-    }
-    stop_at();
-    if(foundBaud){
-      toggle_led();
-      delay(400);
-      toggle_led();
-      delay(400);
-      toggle_led();
-      delay(400);
-      toggle_led();
-      delay(400);
-      toggle_led();
-      delay(400);    
-    }
-    if(!foundBaud){
-      toggle_led();
-      delay(600);
-      toggle_led();
-    }
-    return (i);
-    
-}
-
-// Send sync packet in highest power possible on all speeds (reciver speed is unknown)
-void set_hc_baudrate(int baudIndex)
-{
-  char buf[12];
-  snprintf(buf, 12, "AT+B%d\r\n", baudArray[baudIndex]);
-  start_at();
-  delay(40);
-  hc12_cmd(buf);
-  stop_at();
-  //Serial.print("resp ");
-  //Serial.println(cmdResBuff);
-  while(Serial.available()) Serial.read();
-  Serial.end();
-  Serial.begin(baudArray[baudIndex]);
-}
-void set_power(byte power)
-{
-  char cmd[10];
-  snprintf(cmd, 7, "AT+P%d\r\n", power);
-  start_at();
-  delay(100);
-  hc12_cmd(cmd);
-  stop_at();
-}
 void send_sync()
 {
   Serial.write("\x00\x00\x00\x00\x00\x00\x00", 7);

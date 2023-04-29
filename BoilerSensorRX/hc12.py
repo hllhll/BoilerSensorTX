@@ -93,6 +93,7 @@ class hc12(object):
             if self.check_baudrate(baudrate):
                 print("Baudrate found: %d" % baudrate)
                 return baudrate
+        return false
 
     def clear_rx(self):
         self._ser.read_all()
