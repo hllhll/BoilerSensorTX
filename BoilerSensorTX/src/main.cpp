@@ -366,11 +366,7 @@ void mesure_and_send(){
     sensors.requestTemperatures();
   }
 #endif
-
-  // too much power Problem is not above this 
-
   sensors.requestTemperatures();
-
 
 #endif
 /*#ifdef DEBUG_PRINTS
@@ -415,9 +411,7 @@ void mesure_and_send(){
   Serial.print( txframe[3], 16 ); Serial.print( ' ' );
   Serial.print( txframe[4], 16 ); Serial.print( ' ' );
   Serial.print( txframe[5], 16 ); Serial.println( ' ' );*/
-  //////////This causes excess power!!
   transmit(txframe, txframe_pos);
-  /////////
   //transmit(txframe, txframe_pos);  // Optional: Redundency 
 }
 
