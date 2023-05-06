@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <EEPROM.h>
 #include <avr/power.h>
+#include "LowPower.h"
+
 // Current sketch static configuration
 
 // New: lower 3 bits used for count#
