@@ -187,6 +187,7 @@ void start_at(){
 void stop_at(){
   if(hc12_is_atmode){
     digitalWrite(HC12_SET_PIN, HIGH);
+    pinMode(HC12_SET_PIN, INPUT);
     hc12_is_atmode = false;
     delay(20);
   }
@@ -488,6 +489,8 @@ void setup_hc12(){
   set_hc_baudrate(HC12_TARGET_BAUDRATE_IDX);
 
   digitalWrite(HC12_SET_PIN, HIGH); //stop_at
+  pinMode(HC12_SET_PIN, INPUT);
+
   hc12_is_atmode = false;
 
 #ifdef READ_TEMPS_WHILE_SLEEPING
@@ -1091,6 +1094,7 @@ void loop() {
     // Goto sleep
     //stop_at(); // Leave AT so SLEEP takes effect- NO! DO NOT LEAVE AT, Current consumption is few uA lower
     avr_sleep();
+    //LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
   }else{
 #ifdef DEBUG_PRINTS    
     unsigned long loop_start = millis();
