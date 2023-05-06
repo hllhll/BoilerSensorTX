@@ -1,7 +1,10 @@
+#include "LowPower.h"
 #include <Arduino.h>
 #include <EEPROM.h>
+
+#ifndef LowPower_h // Still in expirimintation, if lowpower is included don't use thi
 #include <avr/power.h>
-#include "LowPower.h"
+#endif 
 
 // Current sketch static configuration
 
@@ -178,6 +181,7 @@ uint8_t CRC8( uint8_t *addr, uint8_t len) {
 
 void start_at(){
   if(!hc12_is_atmode){
+    pinMode(HC12_SET_PIN, OUTPUT);
     digitalWrite(HC12_SET_PIN, LOW);//Moves device into at mode
     delay(20);
     hc12_is_atmode = true;
@@ -187,9 +191,9 @@ void start_at(){
 void stop_at(){
   if(hc12_is_atmode){
     digitalWrite(HC12_SET_PIN, HIGH);
-    pinMode(HC12_SET_PIN, INPUT);
     hc12_is_atmode = false;
     delay(20);
+    pinMode(HC12_SET_PIN, INPUT);
   }
 }
 
@@ -210,27 +214,52 @@ void locahEcho(){
 /// ********For ENTERING sleep mode, 45ms after setting low, 35 after command, 35 after setting high sufficient to exit sleep
 void hc12_sleep(){
   start_at();
-  delay(25); // another 25 to complete delay to 45
-  Serial.println("AT+SLEEP");
+  delay(60); // another 25 to complete delay to 45 //Proved working :300,25
+  Serial.print("AT+SLEEP");
   Serial.flush();
-  delay(35);
-  stop_at(); // Sleep will be in effect after leaving AT mode.
+  delay(110);  // //Proved working :400,35
+  stop_at(); // Sleep will be in effect after leaving AT mode. 
   delay(15); // another 15 to complete delay to 35
+  Serial.end();
 }
 
 /// ********For leaving sleep mode, 20ms after setting low, 20 after setting high sufficient to exit sleep
 void hc12_sleep_exit(){
 #ifndef RF_DONT_LEAVE_SLEEP
+  Serial.begin(baudArray[HC12_TARGET_BAUDRATE_IDX]);
   start_at();
   stop_at();
 #endif
+}
+
+unsigned long sleeping_millis = 0;
+
+void avr_sleep(){
+  
+  avr_sleeping = true;
+#ifndef LowPower_h
+  wdt_reset();
+  myWatchdogEnable();
+#endif
+/*#ifdef DEBUG_PRINTS
+  Serial.println("Slp");
+  Serial.flush();
+#endif*/
+  sleeping_millis+=AVR_SLEEP_TIME;
+  pinMode(SENSOR_1WIRE_PIN, INPUT);
+#ifndef LowPower_h
+  sleep_mode();  // POWER: ~0.8-0.7 ~ 0.005
+#else
+  LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
+#endif
+  
 }
 
 void transmit(const byte *buf, size_t size){
 #ifdef DEBUG_PRINTS
   Serial.println("Sending...");
 #endif
-  Serial.flush();
+  /// Serial.flush();  //// THIS CAUSES EXCESS CURRENT - FROM NOW AND NEVER??
 #ifndef RF_DONT_LEAVE_SLEEP
   hc12_sleep_exit();
 #endif
@@ -264,11 +293,13 @@ void clear_stats(){
   tx_counter = 0;
 }
 
+#ifndef LowPower_h // Still in expirimintation, if lowpower is included don't use this
 ISR(WDT_vect) {
   cli();
   wdt_disable();
   sei();
 }
+#endif
 
 void myWatchdogEnable() {  // turn on watchdog timer; interrupt mode every 2.0s
   cli();
@@ -293,21 +324,7 @@ void myWatchdogEnable() {  // turn on watchdog timer; interrupt mode every 2.0s
   sei();
 }
 
-unsigned long sleeping_millis = 0;
 
-void avr_sleep(){
-  
-  avr_sleeping = true;
-  wdt_reset();
-  myWatchdogEnable();
-/*#ifdef DEBUG_PRINTS
-  Serial.println("Slp");
-  Serial.flush();
-#endif*/
-  sleeping_millis+=AVR_SLEEP_TIME;
-  sleep_mode();  // POWER: ~0.8-0.7 ~ 0.005
-  
-}
 
 byte mesurement_to_byte(float &mesurement){
   // from 10dC (-10)
@@ -349,7 +366,12 @@ void mesure_and_send(){
     sensors.requestTemperatures();
   }
 #endif
+
+  // too much power Problem is not above this 
+
   sensors.requestTemperatures();
+
+
 #endif
 /*#ifdef DEBUG_PRINTS
   Serial.println("Temp reqd.");
@@ -380,6 +402,8 @@ void mesure_and_send(){
       txframe_pos++;
     }
   }
+  // too much power Problem is not above this 
+  
   // Checksum
   // I Don't know why I cant get CRC8 to work, just used ADD()
   txframe[txframe_pos] = CRC8(txframe, txframe_pos);
@@ -391,7 +415,9 @@ void mesure_and_send(){
   Serial.print( txframe[3], 16 ); Serial.print( ' ' );
   Serial.print( txframe[4], 16 ); Serial.print( ' ' );
   Serial.print( txframe[5], 16 ); Serial.println( ' ' );*/
+  //////////This causes excess power!!
   transmit(txframe, txframe_pos);
+  /////////
   //transmit(txframe, txframe_pos);  // Optional: Redundency 
 }
 
@@ -489,7 +515,6 @@ void setup_hc12(){
   set_hc_baudrate(HC12_TARGET_BAUDRATE_IDX);
 
   digitalWrite(HC12_SET_PIN, HIGH); //stop_at
-  pinMode(HC12_SET_PIN, INPUT);
 
   hc12_is_atmode = false;
 
@@ -568,10 +593,12 @@ void setup(void) {
   //power_all_disable(); //This reduces ~10uA // But doesnt wake up :/
   
   // Next 3 commands reduces to 0.13 uA
+#ifndef LowPower_h // Still in expirimintation, if lowpower is included don't use these
   power_adc_disable();
   power_twi_disable();
   power_spi_disable();
-  
+#endif
+
   // These causes problems, dont run them, device doesn't wake up
   /* power_timer0_disable();
   power_timer1_disable();
@@ -589,13 +616,14 @@ void setup(void) {
 #endif
   hc12_sleep();
 
+#ifndef LowPower_h
   // TODO: Improve power consumption
   // Maybe power down?
   // Further sleep modes reading: https://forum.arduino.cc/t/power-consumption-of-pins-in-different-pin-modes/567117/15
   //
   //set_sleep_mode(SLEEP_MODE_PWR_SAVE); //1.8 mA?
   set_sleep_mode(SLEEP_MODE_PWR_DOWN); //10uA
-
+#endif
   EEPROM.begin();
   clear_stats();
 
@@ -1068,6 +1096,7 @@ void survey_scan_loop(){
 
 
 void loop() {
+  //if we sleep here, current cons is super low.
 #ifdef DEBUG_PRINTS 
   Serial.print('.');
 #endif
@@ -1094,7 +1123,6 @@ void loop() {
     // Goto sleep
     //stop_at(); // Leave AT so SLEEP takes effect- NO! DO NOT LEAVE AT, Current consumption is few uA lower
     avr_sleep();
-    //LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
   }else{
 #ifdef DEBUG_PRINTS    
     unsigned long loop_start = millis();
