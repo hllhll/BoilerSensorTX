@@ -72,6 +72,7 @@ const unsigned int baudArrayLen = 8;
 #define RESOLUTION 12 // 9 bit-0.5°C
 #define RELEARN_SENSORS_THRESHOLD 2 // If x new sensors are found that are not in ROM, re-learn all of them
 #define SENSOR_1WIRE_PIN 14
+#define SENSOR_POWER_PIN 5
 
 //Amount of bits sent in UART TX of bytes bytes
 #define UART_BITS_IN_BYTES(bytes) ((8+1+1)*(bytes))
@@ -221,6 +222,8 @@ void hc12_sleep(){
   stop_at(); // Sleep will be in effect after leaving AT mode. 
   delay(15); // another 15 to complete delay to 35
   Serial.end();
+  pinMode(0, INPUT);
+  pinMode(1, INPUT);
 }
 
 /// ********For leaving sleep mode, 20ms after setting low, 20 after setting high sufficient to exit sleep
@@ -246,7 +249,6 @@ void avr_sleep(){
   Serial.flush();
 #endif*/
   sleeping_millis+=AVR_SLEEP_TIME;
-  pinMode(SENSOR_1WIRE_PIN, INPUT);
 #ifndef LowPower_h
   sleep_mode();  // POWER: ~0.8-0.7 ~ 0.005
 #else
@@ -366,6 +368,12 @@ void mesure_and_send(){
     sensors.requestTemperatures();
   }
 #endif
+
+  // Since we were in sleep, make sure dallas library was initiated
+  // This should also re-activate idle SENSOR_1WIRE_PIN
+  pinMode(SENSOR_POWER_PIN, OUTPUT);
+  digitalWrite(SENSOR_POWER_PIN, HIGH);
+  sensors.begin();
   sensors.requestTemperatures();
 
 #endif
@@ -398,8 +406,10 @@ void mesure_and_send(){
       txframe_pos++;
     }
   }
-  // too much power Problem is not above this 
-  
+  // "Trun off" 1-wire
+  pinMode(SENSOR_1WIRE_PIN, INPUT);
+  // Turn off sensor power
+  pinMode(SENSOR_POWER_PIN, INPUT);
   // Checksum
   // I Don't know why I cant get CRC8 to work, just used ADD()
   txframe[txframe_pos] = CRC8(txframe, txframe_pos);
@@ -625,6 +635,8 @@ void setup(void) {
   FromEEPROM(snapshot_nvram);
 
   // Find active sensors on bus - sensors object is now populated
+  pinMode(SENSOR_POWER_PIN, OUTPUT);
+  digitalWrite(SENSOR_POWER_PIN, HIGH);
   sensors.begin();
   FromDallas(sensors, snapshot_detected);
 #ifdef DEBUG_PRINTS
@@ -675,6 +687,7 @@ void setup(void) {
   //eeprom_save()''
 
   configure_sensors();
+  pinMode(SENSOR_POWER_PIN, INPUT);
 }
 
 #ifdef ACTIVATE_TEST_MODULE
