@@ -373,8 +373,8 @@ void mesure_and_send(){
   // This should also re-activate idle SENSOR_1WIRE_PIN
   pinMode(SENSOR_POWER_PIN, OUTPUT);
   digitalWrite(SENSOR_POWER_PIN, HIGH);
-  sensors.begin();
-  sensors.requestTemperatures();
+  //sensors.begin(); //NO! I expect to know the existing sensors within each cycle.
+  //sensors.requestTemperatures(); Done by loop() function asyncronusly.
 
 #endif
 /*#ifdef DEBUG_PRINTS
@@ -391,6 +391,7 @@ void mesure_and_send(){
     if(snapshot_current.sensors[i].available){
       cur_addr = snapshot_current.sensors[i].address;
       //float reading = sensors.getTempCByIndex(i);
+      sensors_wait_conversions();
       float reading = sensors.getTempC(cur_addr);
       txframe[txframe_pos] = mesurement_to_byte(reading);
 /*#ifdef DEBUG_PRINTS
@@ -537,56 +538,40 @@ void eeprom_save(){
   EEPROM.put(EEPROM_SENSORS_LIST_ADDR,  nv_sensors_list);*/
 }
 
-byte find_sensors() {
-  // This will reset dallas library
-  sensors.setOneWire(&oneWire);
-  sensors.begin();
-  return sensors.getDS18Count();
-  /*
-  byte sensors = 0;
-  byte addr[8];
-
-  ds.reset_search();
-
-  while ( ds.search(addr)) {
-          Serial.print("ROM =");
-      for( i = 0; i < 8; i++) {
-        Serial.write(' ');
-        Serial.print(addr[i], HEX);
-      }
-    
-
-    memset(sensor_addresses[sensors], 0, sizeof(sensor_addresses[sensors]));
-    sensor_types[sensors] = 0xff;
-
-    if(check_sensor_crc(addr)){
-      memcpy(sensor_addresses[sensors], addr, sizeof(sensor_addresses[sensors]));
-      sensor_types[sensors] = get_sensor_type(addr);
-    }
-    
-    sensors++;
-  }
-  ds.reset_search();
-  return;
-*/
+unsigned long sensor_conversion_requested_millis;
+void sensors_off(){
+  digitalWrite(SENSOR_POWER_PIN, LOW);
 }
 
+void sensors_on(){
+  digitalWrite(SENSOR_POWER_PIN, HIGH);
+  sensors.setResolution(RESOLUTION);
+}
 
+void sensors_triggerMesurment(){
+  sensors_on();
+  sensors.requestTemperatures();
+  sensor_conversion_requested_millis = millis();
+}
 
+void sensors_wait_conversions(){
+  while((millis() - sensor_conversion_requested_millis) < sensors.millisToWaitForConversion(RESOLUTION)){
+  }
+}
 
 void configure_sensors(){
-  sensors.setResolution(RESOLUTION);
+  sensors_on();
   // TRUE : function requestTemperature() etc will 'listen' to an IC to determine whether a conversion is complete
   //sensors.setCheckForConversion(true);
-  sensors.setCheckForConversion(false);
+  sensors.setCheckForConversion(false); // Doesn't changes something in the device, issue only once
 
   // sets the value of the waitForConversion flag
   // TRUE : function requestTemperature() etc returns when conversion is ready
   // FALSE: function requestTemperature() etc returns immediately (USE WITH CARE!!)
   //        (1) programmer has to check if the needed delay has passed
   //        (2) but the application can do meaningful things in that time
-  //sensors.setWaitForConversion(false); // use with isConversionComplete ?
-  sensors.setWaitForConversion(true); // use with isConversionComplete ?
+  sensors.setWaitForConversion(false); // use with isConversionComplete ?
+  //sensors.setWaitForConversion(true); // use with isConversionComplete ? // Doesn't changes something in the device, issue only once
 }
 
 void setup(void) {
@@ -636,9 +621,11 @@ void setup(void) {
 
   // Find active sensors on bus - sensors object is now populated
   pinMode(SENSOR_POWER_PIN, OUTPUT);
-  digitalWrite(SENSOR_POWER_PIN, HIGH);
+  sensors_on(); //Should be before sensors.begin
   sensors.begin();
+  configure_sensors();
   FromDallas(sensors, snapshot_detected);
+  sensors_off();
 #ifdef DEBUG_PRINTS
   Serial.print("Dallas lib: ");
   Serial.println(snapshot_detected.count);
@@ -685,9 +672,6 @@ void setup(void) {
   // #define RELEARN_SENSORS_THRESHOLD 2 // If x new sensors are found that are not in ROM, re-learn all of them
   //known_sensors = rewrite_sensors_to_nvram();
   //eeprom_save()''
-
-  configure_sensors();
-  pinMode(SENSOR_POWER_PIN, INPUT);
 }
 
 #ifdef ACTIVATE_TEST_MODULE
@@ -1140,6 +1124,7 @@ void loop() {
       delay(1000);
     }
 #endif
+    sensors_triggerMesurment();
     first_loop = false;
     avr_sleeping = !avr_sleeping;
     last_sample_millis = millis() + sleeping_millis;
