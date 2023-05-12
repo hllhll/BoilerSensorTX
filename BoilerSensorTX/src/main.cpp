@@ -29,7 +29,7 @@
 //#define SAMPLE_INTERVAL 120000L // ==> real time 4.5m?
 //#define SAMPLE_INTERVAL 60000L // ==> real time ~70s
 //#define SAMPLE_INTERVAL 75000L // ==> real time 90s?
-#define SAMPLE_INTERVAL 95000L // ==> real time ?
+#define SAMPLE_INTERVAL 95000L // ==> real time ~2m??
 
 #if SAMPLE_INTERVAL<AVR_SLEEP_TIME
   #error "Sample interval should be gt avr sleep time"
@@ -303,6 +303,27 @@ ISR(WDT_vect) {
 }
 #endif
 
+unsigned long sensor_conversion_requested_millis;
+void sensors_off(){
+  digitalWrite(SENSOR_POWER_PIN, LOW);
+}
+
+void sensors_on(){
+  digitalWrite(SENSOR_POWER_PIN, HIGH);
+  sensors.setResolution(RESOLUTION);
+}
+
+void sensors_triggerMesurment(){
+  sensors_on();
+  sensors.requestTemperatures();
+  sensor_conversion_requested_millis = millis();
+}
+
+void sensors_wait_conversions(){
+  while((millis() - sensor_conversion_requested_millis) < sensors.millisToWaitForConversion(RESOLUTION)){
+  }
+}
+
 void myWatchdogEnable() {  // turn on watchdog timer; interrupt mode every 2.0s
   cli();
   MCUSR = 0;
@@ -410,7 +431,7 @@ void mesure_and_send(){
   // "Trun off" 1-wire
   pinMode(SENSOR_1WIRE_PIN, INPUT);
   // Turn off sensor power
-  pinMode(SENSOR_POWER_PIN, INPUT);
+  sensors_off();
   // Checksum
   // I Don't know why I cant get CRC8 to work, just used ADD()
   txframe[txframe_pos] = CRC8(txframe, txframe_pos);
@@ -536,27 +557,6 @@ void eeprom_save(){
 #endif
   /*EEPROM.put(EEPROM_SENSORS_NUM_ADDR, nv_sensors);
   EEPROM.put(EEPROM_SENSORS_LIST_ADDR,  nv_sensors_list);*/
-}
-
-unsigned long sensor_conversion_requested_millis;
-void sensors_off(){
-  digitalWrite(SENSOR_POWER_PIN, LOW);
-}
-
-void sensors_on(){
-  digitalWrite(SENSOR_POWER_PIN, HIGH);
-  sensors.setResolution(RESOLUTION);
-}
-
-void sensors_triggerMesurment(){
-  sensors_on();
-  sensors.requestTemperatures();
-  sensor_conversion_requested_millis = millis();
-}
-
-void sensors_wait_conversions(){
-  while((millis() - sensor_conversion_requested_millis) < sensors.millisToWaitForConversion(RESOLUTION)){
-  }
 }
 
 void configure_sensors(){
