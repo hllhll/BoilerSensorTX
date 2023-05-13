@@ -93,14 +93,14 @@ class hc12(object):
             if self.check_baudrate(baudrate):
                 print("Baudrate found: %d" % baudrate)
                 return baudrate
-        return false
+        return False
 
     def clear_rx(self):
         self._ser.read_all()
 
-    def read_until(self, terminator= serial.LF, size=None):
+    def read_until(self, expected=serial.LF, size=None):
         # self._ser.write([0,0,0,0xff,0xff,0xff])
-        return (self._ser.read_until(terminator=terminator, size=size))
+        return (self._ser.read_until(expected=expected, size=size))
 
     def set_baudrate(self, baudrateIdx):
         self.mode_at()
