@@ -196,7 +196,7 @@ void stop_at(bool exiting_sleep=false){
     //TODO: Maybe this comment-out was the issue? ISSUE-TEST-A
     digitalWrite(HC12_SET_PIN, HIGH);// No need for this, has Internal 10k pull-up
     hc12_is_atmode = false;
-    /*if(exiting_sleep)*/ delay(20); // This is only needed when exiting sleep | want to transmit
+    if(exiting_sleep) delay(20); // This is only needed when exiting sleep | want to transmit
     pinMode(HC12_SET_PIN, INPUT); 
   }
 }
