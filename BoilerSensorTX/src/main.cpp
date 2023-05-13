@@ -410,7 +410,8 @@ void mesure_and_send(){
 
   // Since we were in sleep, make sure dallas library was initiated
   // This should also re-activate idle SENSOR_1WIRE_PIN
-  sensors_on();
+  //sensors_on();
+  
   //pinMode(SENSOR_POWER_PIN, OUTPUT);
   //digitalWrite(SENSOR_POWER_PIN, HIGH);
   
