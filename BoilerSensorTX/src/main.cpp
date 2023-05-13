@@ -227,7 +227,7 @@ void hc12_sleep(){
   stop_at(); // Sleep will be in effect after leaving AT mode. 
 
   // Don't think I need this, AT Already stopped at this point so if there was data pending - already gone
-  delay(15); // another 15 to complete delay to 35
+  //delay(15); // another 15 to complete delay to 35
 
   Serial.end();
   /*pinMode(0, INPUT);
@@ -261,7 +261,7 @@ void avr_sleep(){
   sleep_mode();  // POWER: ~0.8-0.7 ~ 0.005
 #else
   //LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
-  LowPower.powerDown(SLEEP_4S, ADC_OFF, BOD_OFF);
+  LowPower.powerDown(SLEEP_2S, ADC_OFF, BOD_OFF);
 #endif
   
 }
@@ -314,15 +314,17 @@ ISR(WDT_vect) {
 
 unsigned long sensor_conversion_requested_millis;
 
+// WARNING THERE ARE SOME QUIRCKS WITH Putting sensors into sleep mode, be careful!
 void sensors_off(){
   digitalWrite(SENSOR_POWER_PIN, LOW);
-  pinMode(SENSOR_1WIRE_PIN, INPUT);
-  digitalWrite(SENSOR_POWER_PIN, HIGH);
+  pinMode(SENSOR_POWER_PIN, INPUT);
+  digitalWrite(SENSOR_POWER_PIN, HIGH);  // WARNING!! KEEPING POWER LOW When 1Wire is input cause exccessive current consumption!
 }
 
 void sensors_on(){
   // sensors.setResolution(RESOLUTION); Happens once on setup, resolution saved into EEPROM
   pinMode(SENSOR_1WIRE_PIN, OUTPUT);
+  pinMode(SENSOR_POWER_PIN, OUTPUT);
   digitalWrite(SENSOR_POWER_PIN, HIGH);
 }
 
@@ -433,7 +435,7 @@ void mesure_and_send(){
   
   // TODO: Test current consumption
   // "Trun off" 1-wire
-  //pinMode(SENSOR_1WIRE_PIN, INPUT);
+  pinMode(SENSOR_1WIRE_PIN, INPUT);
   
   // Turn off sensor power
   sensors_off();
@@ -559,7 +561,9 @@ void eeprom_save(){
 }
 
 void configure_sensors(){
-  sensors_on();
+  sensors_on(); //Should be before sensors.begin
+  delay(20);
+  sensors.begin();
 
   //for(int i=0; i<snapshot_current.count; i++)
   for(uint8_t i=0; i<sensors.getDS18Count(); i++)
@@ -631,12 +635,9 @@ void setup(void) {
 
   // Find active sensors on bus - sensors object is now populated
   pinMode(SENSOR_POWER_PIN, OUTPUT);
-  sensors_on(); //Should be before sensors.begin
-  delay(20);
-  sensors.begin();
   configure_sensors();
   FromDallas(sensors, snapshot_detected);
-  //sensors_off();
+  sensors_off();
 #ifdef DEBUG_PRINTS
   Serial.print("Dallas lib: ");
   Serial.println(snapshot_detected.count);
