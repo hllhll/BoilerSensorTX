@@ -415,7 +415,7 @@ void mesure_and_send(){
   //sensors.begin(); //Dont do this- I expect to know the existing sensors within each cycle. This cmd only initialize internal variables
 #endif
   byte *cur_addr;
-/*
+
   sensors_wait_conversions(); // Should wait for all sensors (i.e. return when last sensor finished)
   // Iterate all sensors that are `considered installed`
   // Only checkout one that are available
@@ -430,7 +430,7 @@ void mesure_and_send(){
       txframe_pos++;
     }
   }
-  */
+  
   // TODO: Test current consumption
   // "Trun off" 1-wire
   //pinMode(SENSOR_1WIRE_PIN, INPUT);
@@ -1134,7 +1134,7 @@ void loop() {
       delay(1000);
     }
 #endif
-    //sensors_triggerMesurment();
+    sensors_triggerMesurment();
     first_loop = false;
     last_sample_millis = millis() + sleeping_millis;
     //exit HC12 sleep
