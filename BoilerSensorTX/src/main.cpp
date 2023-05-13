@@ -193,10 +193,11 @@ void start_at(){
 
 void stop_at(bool exiting_sleep=false){
   if(hc12_is_atmode){
-    //digitalWrite(HC12_SET_PIN, HIGH);// No need for this, has Internal 10k pull-up
-    pinMode(HC12_SET_PIN, INPUT); 
+    //TODO: Maybe this comment-out was the issue? ISSUE-TEST-A
+    digitalWrite(HC12_SET_PIN, HIGH);// No need for this, has Internal 10k pull-up
     hc12_is_atmode = false;
-    if(exiting_sleep) delay(20); // This is only needed when exiting sleep | want to transmit
+    /*if(exiting_sleep)*/ delay(20); // This is only needed when exiting sleep | want to transmit
+    pinMode(HC12_SET_PIN, INPUT); 
   }
 }
 
@@ -221,16 +222,16 @@ void hc12_sleep(){
   delay(60); // another 25 to complete delay to 45 //Proved working :300,25
   Serial.print("AT+SLEEP");
   Serial.flush();
-  //delay(110);  // //Proved working :400,35
-  delay(400);
+  delay(110);  // //Proved working :400,35
+  //delay(400);
   stop_at(); // Sleep will be in effect after leaving AT mode. 
 
   // Don't think I need this, AT Already stopped at this point so if there was data pending - already gone
-  //delay(15); // another 15 to complete delay to 35
+  delay(15); // another 15 to complete delay to 35
 
   Serial.end();
-  pinMode(0, INPUT);
-  pinMode(1, INPUT);
+  /*pinMode(0, INPUT);
+  pinMode(1, INPUT);*/
 }
 
 /// ********For leaving sleep mode, 20ms after setting low, 20 after setting high sufficient to exit sleep
@@ -255,11 +256,12 @@ void avr_sleep(){
   Serial.flush();
 #endif*/
   sleeping_millis+=AVR_SLEEP_TIME;
+  pinMode(SENSOR_1WIRE_PIN, INPUT);
 #ifndef LowPower_h
   sleep_mode();  // POWER: ~0.8-0.7 ~ 0.005
 #else
   //LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
-  LowPower.powerDown(SLEEP_1S, ADC_OFF, BOD_OFF);
+  LowPower.powerDown(SLEEP_4S, ADC_OFF, BOD_OFF);
 #endif
   
 }
@@ -315,12 +317,13 @@ unsigned long sensor_conversion_requested_millis;
 void sensors_off(){
   digitalWrite(SENSOR_POWER_PIN, LOW);
   pinMode(SENSOR_1WIRE_PIN, INPUT);
+  digitalWrite(SENSOR_POWER_PIN, HIGH);
 }
 
 void sensors_on(){
-  digitalWrite(SENSOR_POWER_PIN, HIGH);
   // sensors.setResolution(RESOLUTION); Happens once on setup, resolution saved into EEPROM
   pinMode(SENSOR_1WIRE_PIN, OUTPUT);
+  digitalWrite(SENSOR_POWER_PIN, HIGH);
 }
 
 void sensors_triggerMesurment(){
@@ -412,7 +415,7 @@ void mesure_and_send(){
   //sensors.begin(); //Dont do this- I expect to know the existing sensors within each cycle. This cmd only initialize internal variables
 #endif
   byte *cur_addr;
-
+/*
   sensors_wait_conversions(); // Should wait for all sensors (i.e. return when last sensor finished)
   // Iterate all sensors that are `considered installed`
   // Only checkout one that are available
@@ -424,20 +427,10 @@ void mesure_and_send(){
       //float reading = sensors.getTempCByIndex(i);
       float reading = sensors.getTempC(cur_addr);
       txframe[txframe_pos] = mesurement_to_byte(reading);
-/*#ifdef DEBUG_PRINTS
-      Serial.print("Sensor #");
-      Serial.print(i);
-      Serial.print(" ");
-      Serial.print( reading );
-      Serial.print("c ");
-      Serial.print(" Mesurment: ");
-      Serial.println( txframe[txframe_pos ] );
-      Serial.flush();
-#endif*/
       txframe_pos++;
     }
   }
-  
+  */
   // TODO: Test current consumption
   // "Trun off" 1-wire
   //pinMode(SENSOR_1WIRE_PIN, INPUT);
@@ -639,10 +632,11 @@ void setup(void) {
   // Find active sensors on bus - sensors object is now populated
   pinMode(SENSOR_POWER_PIN, OUTPUT);
   sensors_on(); //Should be before sensors.begin
+  delay(20);
   sensors.begin();
   configure_sensors();
   FromDallas(sensors, snapshot_detected);
-  sensors_off();
+  //sensors_off();
 #ifdef DEBUG_PRINTS
   Serial.print("Dallas lib: ");
   Serial.println(snapshot_detected.count);
@@ -1140,7 +1134,7 @@ void loop() {
       delay(1000);
     }
 #endif
-    sensors_triggerMesurment();
+    //sensors_triggerMesurment();
     first_loop = false;
     last_sample_millis = millis() + sleeping_millis;
     //exit HC12 sleep
