@@ -93,7 +93,6 @@ const unsigned int baudArrayLen = 8;
 #include <avr/interrupt.h>
 
 bool hc12_is_atmode = false;
-bool avr_sleeping = true; // Start with sending data
 
 #include "Sensor.hpp"
 
@@ -189,14 +188,16 @@ void start_at(){
   }
 }
 
-void stop_at(){
+
+void stop_at(bool exiting_sleep=false){
   if(hc12_is_atmode){
-    digitalWrite(HC12_SET_PIN, HIGH);
+    //digitalWrite(HC12_SET_PIN, HIGH);// No need for this, has Internal 10k pull-up
+    pinMode(HC12_SET_PIN, INPUT); 
     hc12_is_atmode = false;
-    delay(20);
-    pinMode(HC12_SET_PIN, INPUT);
+    if(exiting_sleep) delay(20); // This is only needed when exiting sleep | want to transmit
   }
 }
+
 
 void locahEcho(){
   //Local echo!
@@ -220,7 +221,10 @@ void hc12_sleep(){
   Serial.flush();
   delay(110);  // //Proved working :400,35
   stop_at(); // Sleep will be in effect after leaving AT mode. 
-  delay(15); // another 15 to complete delay to 35
+
+  // Don't think I need this, AT Already stopped at this point so if there was data pending - already gone
+  //delay(15); // another 15 to complete delay to 35
+
   Serial.end();
   pinMode(0, INPUT);
   pinMode(1, INPUT);
@@ -231,7 +235,7 @@ void hc12_sleep_exit(){
 #ifndef RF_DONT_LEAVE_SLEEP
   Serial.begin(baudArray[HC12_TARGET_BAUDRATE_IDX]);
   start_at();
-  stop_at();
+  stop_at(true);
 #endif
 }
 
@@ -239,7 +243,6 @@ unsigned long sleeping_millis = 0;
 
 void avr_sleep(){
   
-  avr_sleeping = true;
 #ifndef LowPower_h
   wdt_reset();
   myWatchdogEnable();
@@ -310,7 +313,7 @@ void sensors_off(){
 
 void sensors_on(){
   digitalWrite(SENSOR_POWER_PIN, HIGH);
-  sensors.setResolution(RESOLUTION);
+  // sensors.setResolution(RESOLUTION); Happens once on setup, resolution saved into EEPROM
 }
 
 void sensors_triggerMesurment(){
@@ -319,9 +322,10 @@ void sensors_triggerMesurment(){
   sensor_conversion_requested_millis = millis();
 }
 
+  // Same as dallas temp lib, just that start time is different
 void sensors_wait_conversions(){
   while(
-    //(!sensors.isConversionComplete()) && // TODO
+    (!sensors.isConversionComplete()) && // Apperently this would return true only once all sensor finish (all sensor release the line back to 1)
     (millis() - sensor_conversion_requested_millis) < sensors.millisToWaitForConversion(RESOLUTION)
     
     ){
@@ -363,8 +367,6 @@ byte mesurement_to_byte(float &mesurement){
   return (byte)( (mesurement-10)*2 );
 }
 
-int stam = 0;
-
 //ID + Sensors_count + <readings> + checksum
 uint8_t txframe[1+MAX_SENSORS+1+1] = {
   (DEVICE_SIG & 0xFF00) >> 8,
@@ -396,18 +398,15 @@ void mesure_and_send(){
 
   // Since we were in sleep, make sure dallas library was initiated
   // This should also re-activate idle SENSOR_1WIRE_PIN
-  pinMode(SENSOR_POWER_PIN, OUTPUT);
-  digitalWrite(SENSOR_POWER_PIN, HIGH);
-  //sensors.begin(); //NO! I expect to know the existing sensors within each cycle.
-  //sensors.requestTemperatures(); Done by loop() function asyncronusly.
-
+  sensors_on();
+  //pinMode(SENSOR_POWER_PIN, OUTPUT);
+  //digitalWrite(SENSOR_POWER_PIN, HIGH);
+  
+  //sensors.begin(); //Dont do this- I expect to know the existing sensors within each cycle. This cmd only initialize internal variables
 #endif
-/*#ifdef DEBUG_PRINTS
-  Serial.println("Temp reqd.");
-  Serial.println(stam++);
-#endif*/
   byte *cur_addr;
 
+  sensors_wait_conversions(); // Should wait for all sensors (i.e. return when last sensor finished)
   // Iterate all sensors that are `considered installed`
   // Only checkout one that are available
   // but transmit all of them (dead ones with the value 0).
@@ -416,8 +415,6 @@ void mesure_and_send(){
     if(snapshot_current.sensors[i].available){
       cur_addr = snapshot_current.sensors[i].address;
       //float reading = sensors.getTempCByIndex(i);
-      sensors_wait_conversions();
-      // TODO: while(sensors.isConversionComplete()
       float reading = sensors.getTempC(cur_addr);
       txframe[txframe_pos] = mesurement_to_byte(reading);
 /*#ifdef DEBUG_PRINTS
@@ -433,21 +430,18 @@ void mesure_and_send(){
       txframe_pos++;
     }
   }
+  
+  // TODO: Test current consumption
   // "Trun off" 1-wire
-  pinMode(SENSOR_1WIRE_PIN, INPUT);
+  //pinMode(SENSOR_1WIRE_PIN, INPUT);
+  
   // Turn off sensor power
   sensors_off();
   // Checksum
   // I Don't know why I cant get CRC8 to work, just used ADD()
   txframe[txframe_pos] = CRC8(txframe, txframe_pos);
   txframe_pos++;
-  /*
-  Serial.print( txframe[0], 16 ); Serial.print( ' ' );
-  Serial.print( txframe[1], 16 ); Serial.print( ' ' );
-  Serial.print( txframe[2], 16 ); Serial.print( ' ' );
-  Serial.print( txframe[3], 16 ); Serial.print( ' ' );
-  Serial.print( txframe[4], 16 ); Serial.print( ' ' );
-  Serial.print( txframe[5], 16 ); Serial.println( ' ' );*/
+
   transmit(txframe, txframe_pos);
   //transmit(txframe, txframe_pos);  // Optional: Redundency 
 }
@@ -566,6 +560,21 @@ void eeprom_save(){
 
 void configure_sensors(){
   sensors_on();
+
+  //for(int i=0; i<snapshot_current.count; i++)
+  for(uint8_t i=0; i<sensors.getDS18Count(); i++)
+  {
+    //auto sensor_addr = snapshot_current.sensors[i].address;
+    unsigned char sensor_addr[8];
+    sensors.getAddress(sensor_addr, i);
+    // Only set and save resolution if resolution is not RESOLUTION
+    // Theoretically this should just happen once
+    if(sensors.getResolution(sensor_addr)!=RESOLUTION){
+      sensors.setResolution( sensor_addr, RESOLUTION );
+      sensors.saveScratchPad( sensor_addr );
+    }
+  }
+
   // TRUE : function requestTemperature() etc will 'listen' to an IC to determine whether a conversion is complete
   //sensors.setCheckForConversion(true);
   sensors.setCheckForConversion(false); // Doesn't changes something in the device, issue only once
@@ -580,12 +589,8 @@ void configure_sensors(){
 }
 
 void setup(void) {
-  
-  // Doesnt doo much?
-  //for(int a=0;a<13;) pinMode(a++,INPUT_PULLUP);
-
   //power_all_disable(); //This reduces ~10uA // But doesnt wake up :/
-  
+
   // Next 3 commands reduces to 0.13 uA
 #ifndef LowPower_h // Still in expirimintation, if lowpower is included don't use these
   power_adc_disable();
@@ -1104,9 +1109,8 @@ void loop() {
   test_hc12();
   return;
 #endif
-  unsigned long cur_millis = millis() + (sleeping_millis);
+  unsigned long cur_millis = millis() + (sleeping_millis); //Todo remove millis completly this doesn't really matter since it's marginal
   //if(false){
-  //if(!avr_sleeping){
   if( (!first_loop) && (cur_millis-last_sample_millis)<SAMPLE_INTERVAL ) {
 #ifdef READ_TEMPS_WHILE_SLEEPING
     if (isLastSleepCycleBeforeTrnamission(last_sample_millis, cur_millis)){
@@ -1131,7 +1135,6 @@ void loop() {
 #endif
     sensors_triggerMesurment();
     first_loop = false;
-    avr_sleeping = !avr_sleeping;
     last_sample_millis = millis() + sleeping_millis;
     //exit HC12 sleep
     mesure_and_send();
