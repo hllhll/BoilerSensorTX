@@ -28,8 +28,9 @@
 //#define SAMPLE_INTERVAL 15000 // ==> real time ~22 @8s sleep
 //#define SAMPLE_INTERVAL 120000L // ==> real time 4.5m?
 //#define SAMPLE_INTERVAL 60000L // ==> real time ~70s
-//#define SAMPLE_INTERVAL 75000L // ==> real time 90s?
-#define SAMPLE_INTERVAL 95000L // ==> real time ~2m??
+#define SAMPLE_INTERVAL 75000L // ==> real time 90s?
+
+//#define SAMPLE_INTERVAL 95000L // ==> real time ~2m??
 
 #if SAMPLE_INTERVAL<AVR_SLEEP_TIME
   #error "Sample interval should be gt avr sleep time"
@@ -64,7 +65,8 @@ const unsigned int baudArrayLen = 8;
 #define HC12_TARGET_BAUDRATE_IDX 4 //19200
 #define HC12_TARGET_BAUDRATE (baudArray[HC12_TARGET_BAUDRATE_IDX])
 
-#define HC12_TARGET_POWER 3
+//#define HC12_TARGET_POWER 3
+#define HC12_TARGET_POWER 7
 
 #define HC12_SET_PIN 3
 #define MAX_SENSORS 6
@@ -219,7 +221,8 @@ void hc12_sleep(){
   delay(60); // another 25 to complete delay to 45 //Proved working :300,25
   Serial.print("AT+SLEEP");
   Serial.flush();
-  delay(110);  // //Proved working :400,35
+  //delay(110);  // //Proved working :400,35
+  delay(400);
   stop_at(); // Sleep will be in effect after leaving AT mode. 
 
   // Don't think I need this, AT Already stopped at this point so if there was data pending - already gone
@@ -255,7 +258,8 @@ void avr_sleep(){
 #ifndef LowPower_h
   sleep_mode();  // POWER: ~0.8-0.7 ~ 0.005
 #else
-  LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
+  //LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
+  LowPower.powerDown(SLEEP_1S, ADC_OFF, BOD_OFF);
 #endif
   
 }
@@ -307,13 +311,16 @@ ISR(WDT_vect) {
 #endif
 
 unsigned long sensor_conversion_requested_millis;
+
 void sensors_off(){
   digitalWrite(SENSOR_POWER_PIN, LOW);
+  pinMode(SENSOR_1WIRE_PIN, INPUT);
 }
 
 void sensors_on(){
   digitalWrite(SENSOR_POWER_PIN, HIGH);
   // sensors.setResolution(RESOLUTION); Happens once on setup, resolution saved into EEPROM
+  pinMode(SENSOR_1WIRE_PIN, OUTPUT);
 }
 
 void sensors_triggerMesurment(){
