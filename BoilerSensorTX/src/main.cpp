@@ -320,7 +320,11 @@ void sensors_triggerMesurment(){
 }
 
 void sensors_wait_conversions(){
-  while((millis() - sensor_conversion_requested_millis) < sensors.millisToWaitForConversion(RESOLUTION)){
+  while(
+    //(!sensors.isConversionComplete()) && // TODO
+    (millis() - sensor_conversion_requested_millis) < sensors.millisToWaitForConversion(RESOLUTION)
+    
+    ){
   }
 }
 
@@ -413,6 +417,7 @@ void mesure_and_send(){
       cur_addr = snapshot_current.sensors[i].address;
       //float reading = sensors.getTempCByIndex(i);
       sensors_wait_conversions();
+      // TODO: while(sensors.isConversionComplete()
       float reading = sensors.getTempC(cur_addr);
       txframe[txframe_pos] = mesurement_to_byte(reading);
 /*#ifdef DEBUG_PRINTS
