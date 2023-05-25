@@ -28,9 +28,10 @@
 //#define SAMPLE_INTERVAL 15000 // ==> real time ~22 @8s sleep
 //#define SAMPLE_INTERVAL 120000L // ==> real time 4.5m?
 //#define SAMPLE_INTERVAL 60000L // ==> real time ~70s
-#define SAMPLE_INTERVAL 75000L // ==> real time 90s?
+//#define SAMPLE_INTERVAL 75000L // ==> real time 90s?
 
-//#define SAMPLE_INTERVAL 95000L // ==> real time ~2m??
+// I want ~2m
+#define SAMPLE_INTERVAL 95000L // ==> real time ~2m??
 
 #if SAMPLE_INTERVAL<AVR_SLEEP_TIME
   #error "Sample interval should be gt avr sleep time"
@@ -65,8 +66,8 @@ const unsigned int baudArrayLen = 8;
 #define HC12_TARGET_BAUDRATE_IDX 4 //19200
 #define HC12_TARGET_BAUDRATE (baudArray[HC12_TARGET_BAUDRATE_IDX])
 
-//#define HC12_TARGET_POWER 3
-#define HC12_TARGET_POWER 7
+#define HC12_TARGET_POWER 3
+//#define HC12_TARGET_POWER 7
 
 #define HC12_SET_PIN 3
 #define MAX_SENSORS 6
@@ -260,8 +261,8 @@ void avr_sleep(){
 #ifndef LowPower_h
   sleep_mode();  // POWER: ~0.8-0.7 ~ 0.005
 #else
-  //LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
-  LowPower.powerDown(SLEEP_2S, ADC_OFF, BOD_OFF);
+  LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
+  //LowPower.powerDown(SLEEP_2S, ADC_OFF, BOD_OFF);
 #endif
   
 }
@@ -411,7 +412,7 @@ void mesure_and_send(){
   // Since we were in sleep, make sure dallas library was initiated
   // This should also re-activate idle SENSOR_1WIRE_PIN
   //sensors_on();
-  
+
   //pinMode(SENSOR_POWER_PIN, OUTPUT);
   //digitalWrite(SENSOR_POWER_PIN, HIGH);
   
@@ -419,7 +420,12 @@ void mesure_and_send(){
 #endif
   byte *cur_addr;
 
+  // We're working on 0.5dC resolution - 12b, it might take ~750ms for conversion to complete.
+  // Let's go to sleep in the meantime.
+  sensor_conversion_requested_millis += 500;  
+  LowPower.powerDown(SLEEP_500MS, ADC_OFF, BOD_OFF);
   sensors_wait_conversions(); // Should wait for all sensors (i.e. return when last sensor finished)
+
   // Iterate all sensors that are `considered installed`
   // Only checkout one that are available
   // but transmit all of them (dead ones with the value 0).
