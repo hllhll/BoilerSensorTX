@@ -167,6 +167,10 @@ void blink(unsigned long d, int times){
   }
 }
 
+void powerDown15ms(){
+  LowPower.powerDown(SLEEP_15MS, ADC_OFF, BOD_OFF);
+}
+
 // https://stackoverflow.com/questions/51731313/cross-platform-crc8-function-c-and-python-parity-check
 uint8_t CRC8( uint8_t *addr, uint8_t len) {
       uint8_t crc=0;
@@ -187,7 +191,8 @@ void start_at(){
   if(!hc12_is_atmode){
     pinMode(HC12_SET_PIN, OUTPUT);
     digitalWrite(HC12_SET_PIN, LOW);//Moves device into at mode
-    delay(20);
+    //delay(20);
+    powerDown15ms();
     hc12_is_atmode = true;
   }
 }
@@ -198,7 +203,7 @@ void stop_at(bool exiting_sleep=false){
     //TODO: Maybe this comment-out was the issue? ISSUE-TEST-A
     digitalWrite(HC12_SET_PIN, HIGH);// No need for this, has Internal 10k pull-up
     hc12_is_atmode = false;
-    if(exiting_sleep) delay(20); // This is only needed when exiting sleep | want to transmit
+    if(exiting_sleep) /*delay(20);*/powerDown15ms(); // This is only needed when exiting sleep | want to transmit
     pinMode(HC12_SET_PIN, INPUT); 
   }
 }
@@ -222,15 +227,15 @@ void locahEcho(){
 void hc12_sleep(){
   start_at();
   // Not enugth: 15 ms, Enougth: 25
-  LowPower.powerDown(SLEEP_15MS, ADC_OFF, BOD_OFF);
-  LowPower.powerDown(SLEEP_15MS, ADC_OFF, BOD_OFF);
+  powerDown15ms();
+  powerDown15ms();
   //delay(25); // another 25 to complete delay to 45 //Proved working :300,25
   Serial.print("AT+SLEEP");
   Serial.flush();
   //Not good: 15, good 25
   //delay(25);  // //Proved working :400,35
-  LowPower.powerDown(SLEEP_15MS, ADC_OFF, BOD_OFF);
-  LowPower.powerDown(SLEEP_15MS, ADC_OFF, BOD_OFF);
+  powerDown15ms();
+  powerDown15ms();
   //delay(400);
   stop_at(); // Sleep will be in effect after leaving AT mode. 
 
@@ -325,8 +330,8 @@ void transmit(const byte *buf, size_t size){
   //Okay: 20, NOK: 10;
   // If this is too low, I guess AT mode gets junk and does not go into sleep mode.
   //delay(20); //Extra delay for... what? This is needed...
-  LowPower.powerDown(SLEEP_15MS, ADC_OFF, BOD_OFF);
-  LowPower.powerDown(SLEEP_15MS, ADC_OFF, BOD_OFF);
+  powerDown15ms();
+  powerDown15ms();
 #ifdef BENCHMARK_POWER  // ~22.6 mA while idling RX
   delay(3000);
 #endif
