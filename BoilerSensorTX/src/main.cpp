@@ -1,4 +1,6 @@
-#include "LowPower.h"
+
+//#include "LowPower.h"
+
 #include <Arduino.h>
 #include <EEPROM.h>
 
@@ -246,6 +248,30 @@ void hc12_sleep_exit(){
 
 unsigned long sleeping_millis = 0;
 
+
+void myWatchdogEnable() {  // turn on watchdog timer; interrupt mode every 2.0s
+  cli();
+  MCUSR = 0;
+  // 7    6    5    4    3  2     1    0
+  //WDIF WDIE WDP3 WDCE WDE WDP2 WDP1 WDP0
+  WDTCSR |= B00011000;
+#if AVR_SLEEP_TIME==1000
+  WDTCSR =  B01000110; // 1 Seconds
+#elif AVR_SLEEP_TIME==2000
+  WDTCSR =  B01000111; // 2 Seconds
+  // DO NOT USE  wdt_enable!! It bricks!
+  //wdt_enable(WDTO_4S);
+#elif AVR_SLEEP_TIME==4000
+  WDTCSR =  B01100000; // 4 Seconds
+  //         --^--^^^
+#elif AVR_SLEEP_TIME==8000
+  WDTCSR =  B01100001; // 8 Seconds
+#elif AVR_SLEEP_TIME==500
+  WDTCSR =  B01000101; // 0.5 Seconds
+#endif
+  sei();
+}
+
 void avr_sleep(){
   
 #ifndef LowPower_h
@@ -345,30 +371,6 @@ void sensors_wait_conversions(){
   }
 }
 
-void myWatchdogEnable() {  // turn on watchdog timer; interrupt mode every 2.0s
-  cli();
-  MCUSR = 0;
-  // 7    6    5    4    3  2     1    0
-  //WDIF WDIE WDP3 WDCE WDE WDP2 WDP1 WDP0
-  WDTCSR |= B00011000;
-#if AVR_SLEEP_TIME==1000
-  WDTCSR =  B01000110; // 1 Seconds
-#elif AVR_SLEEP_TIME==2000
-  WDTCSR =  B01000111; // 2 Seconds
-  // DO NOT USE  wdt_enable!! It bricks!
-  //wdt_enable(WDTO_4S);
-#elif AVR_SLEEP_TIME==4000
-  WDTCSR =  B01100000; // 4 Seconds
-  //         --^--^^^
-#elif AVR_SLEEP_TIME==8000
-  WDTCSR =  B01100001; // 8 Seconds
-#elif AVR_SLEEP_TIME==500
-  WDTCSR =  B01000101; // 0.5 Seconds
-#endif
-  sei();
-}
-
-
 
 byte mesurement_to_byte(float &mesurement){
   // from 10dC (-10)
@@ -422,8 +424,10 @@ void mesure_and_send(){
 
   // We're working on 0.5dC resolution - 12b, it might take ~750ms for conversion to complete.
   // Let's go to sleep in the meantime.
+#ifdef LowPower_h  
   sensor_conversion_requested_millis += 500;  
   LowPower.powerDown(SLEEP_500MS, ADC_OFF, BOD_OFF);
+#endif
   sensors_wait_conversions(); // Should wait for all sensors (i.e. return when last sensor finished)
 
   // Iterate all sensors that are `considered installed`
