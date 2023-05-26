@@ -22,17 +22,17 @@
 //#define JUST_TEST_RF_ON_BOOT
 //#define DEBUG_PRINTS
 // Options 2, 4, 8 in seconds
-#define AVR_SLEEP_TIME 1000
-//#define AVR_SLEEP_TIME 8000
+//#define AVR_SLEEP_TIME 1000
+#define AVR_SLEEP_TIME 8000
 
 // in millis
-#define SAMPLE_INTERVAL 15000 // ==> real time ~22 @8s sleep
+//#define SAMPLE_INTERVAL 15000 // ==> real time ~22 @8s sleep
 //#define SAMPLE_INTERVAL 120000L // ==> real time 4.5m?
 //#define SAMPLE_INTERVAL 60000L // ==> real time ~70s
 //#define SAMPLE_INTERVAL 75000L // ==> real time 90s?
 
 // I want ~2m
-//#define SAMPLE_INTERVAL 95000L // ==> real time ~2m??
+#define SAMPLE_INTERVAL 95000L // ==> real time ~2m??
 
 #if SAMPLE_INTERVAL<AVR_SLEEP_TIME
   #error "Sample interval should be gt avr sleep time"
@@ -67,8 +67,8 @@ const unsigned int baudArrayLen = 8;
 #define HC12_TARGET_BAUDRATE_IDX 4 //19200
 #define HC12_TARGET_BAUDRATE (baudArray[HC12_TARGET_BAUDRATE_IDX])
 
-//#define HC12_TARGET_POWER 3
-#define HC12_TARGET_POWER 7
+#define HC12_TARGET_POWER 3
+//#define HC12_TARGET_POWER 7
 
 #define HC12_SET_PIN 3
 #define MAX_SENSORS 6
@@ -297,8 +297,8 @@ void avr_sleep(){
 #ifndef LowPower_h
   sleep_mode();  // POWER: ~0.8-0.7 ~ 0.005
 #else
-  //LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
-  LowPower.powerDown(SLEEP_1S, ADC_OFF, BOD_OFF);
+  LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
+  //LowPower.powerDown(SLEEP_1S, ADC_OFF, BOD_OFF);
 #endif
   
 }
