@@ -221,10 +221,14 @@ void locahEcho(){
 /// ********For ENTERING sleep mode, 45ms after setting low, 35 after command, 35 after setting high sufficient to exit sleep
 void hc12_sleep(){
   start_at();
+  // Not enugth: 15 ms, Enougth: 25
+  //LowPower.powerDown(SLEEP_15MS, ADC_OFF, BOD_OFF);
+  //LowPower.powerDown(SLEEP_15MS, ADC_OFF, BOD_OFF);
   delay(25); // another 25 to complete delay to 45 //Proved working :300,25
   Serial.print("AT+SLEEP");
   Serial.flush();
-  delay(35);  // //Proved working :400,35
+  //Not good: 15, good 25
+  delay(25);  // //Proved working :400,35
   //delay(400);
   stop_at(); // Sleep will be in effect after leaving AT mode. 
 
@@ -316,7 +320,9 @@ void transmit(const byte *buf, size_t size){
   //   1. enter AT mode and will dismiss tx data
   //   2. enter sleep mode and will kill tx data.
   //delay( DELAY_TX_DATA_MS(size) );
-  delay(50); //Extra delay for... what? This is needed...
+  //Okay: 20, NOK: 10;
+  // If this is too low, I guess AT mode gets junk and does not go into sleep mode.
+  delay(20); //Extra delay for... what? This is needed...
 #ifdef BENCHMARK_POWER  // ~22.6 mA while idling RX
   delay(3000);
 #endif
